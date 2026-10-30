@@ -19,6 +19,10 @@ on:
           - Release
           - Debug
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   build:
     # 用 Intel 版 macOS runner，避开 macos-14/15 arm64 的排队瓶颈；
@@ -90,6 +94,19 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
+
+      - name: Publish failure log
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -f /tmp/ios-build.log || exit 0
+          tail -n 500 /tmp/ios-build.log > /tmp/ios-tail.log
+          jq -n --rawfile summary /tmp/ios-tail.log --arg sha "$GITHUB_SHA" \
+            '{name:"ios-build-log", head_sha:$sha, status:"completed", conclusion:"failure", output:{title:"iOS build log", summary:$summary}}' \
+            > /tmp/check.json
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/check.json
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
