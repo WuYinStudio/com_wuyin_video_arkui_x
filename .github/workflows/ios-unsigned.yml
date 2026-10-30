@@ -21,7 +21,9 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # 用 Intel 版 macOS runner，避开 macos-14/15 arm64 的排队瓶颈；
+    # macOS 26 自带 Xcode 26，与 ArkUI-X 26 SDK 匹配。
+    runs-on: macos-26-intel
     timeout-minutes: 60
 
     steps:

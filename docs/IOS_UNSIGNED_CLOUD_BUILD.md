@@ -95,7 +95,8 @@ xcodebuild \
 
 ## GitHub Actions 云构建
 
-模板见 `.github/workflows/ios-unsigned.yml`，使用 `macos-14` runner。
+模板见 `.github/workflows/ios-unsigned.yml`，使用 `macos-26-intel` runner
+（Intel 版 macOS 26，自带 Xcode 26，避开 arm64 runner 的排队瓶颈）。
 
 1. 工程已推到 GitHub（包含 `.arkui-x/ios/arkui-x/` 预编译产物）；
 2. 打开仓库 **Actions → iOS unsigned build → Run workflow**；
