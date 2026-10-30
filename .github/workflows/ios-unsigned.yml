@@ -58,10 +58,38 @@ jobs:
       - name: Show Xcode
         run: xcodebuild -version
 
+      - name: Diagnostics
+        run: |
+          {
+            echo "## iOS build diagnostics"
+            echo '```'
+            xcodebuild -version
+            echo '--- project targets ---'
+            xcodebuild -project .arkui-x/ios/app.xcodeproj -list || true
+            echo '--- framework ---'
+            ls -la .arkui-x/ios/frameworks/libarkui_ios.xcframework || true
+            ls -la .arkui-x/ios/frameworks/libarkui_ios.xcframework/ios-arm64/libarkui_ios.framework || true
+            echo '--- assets ---'
+            ls -la .arkui-x/ios/arkui-x/entry/ets || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build unsigned IPA
         env:
           IOS_CONFIGURATION: ${{ inputs.configuration }}
-        run: bash scripts/build_unsigned_ios.sh
+        run: |
+          set +e
+          bash scripts/build_unsigned_ios.sh 2>&1 | tee /tmp/ios-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## iOS build failed (exit $status)"
+              echo '```'
+              tail -n 300 /tmp/ios-build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
