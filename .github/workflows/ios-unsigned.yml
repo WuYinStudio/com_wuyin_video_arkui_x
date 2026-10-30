@@ -2,8 +2,9 @@ name: iOS unsigned build
 
 # 说明：
 #   - 这是“无签名 iOS 包”的 macOS 云构建模板，不依赖 Apple 开发者证书。
-#   - 运行前必须配置仓库 Secret：ARKUI_X_IOS_FRAMEWORK_URL
-#     该 URL 指向一个 zip，里面包含 libarkui_ios.xcframework。
+#   - workflow 会自动从华为 CDN 下载 macOS 版 ArkUI-X SDK，取出
+#     libarkui_ios.xcframework；不需要配置任何 Secret。
+#   - 首次运行会下载约 542 MB，之后使用 Actions cache。
 #   - 未签名 ipa 不能直接装到未越狱设备，只适合后续重签或 CI 验证。
 
 on:
@@ -21,35 +22,36 @@ on:
 jobs:
   build:
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install libarkui_ios.xcframework
-        env:
-          ARKUI_X_IOS_FRAMEWORK_URL: ${{ secrets.ARKUI_X_IOS_FRAMEWORK_URL }}
+      - name: Cache ArkUI-X macOS SDK
+        uses: actions/cache@v4
+        with:
+          path: /tmp/arkui-x-macos-sdk.zip
+          key: arkui-x-macos-sdk-26.0.0.28
+
+      - name: Download libarkui_ios.xcframework
         run: |
           set -euo pipefail
-          if [ -z "${ARKUI_X_IOS_FRAMEWORK_URL:-}" ]; then
-            echo "::error::缺少 Secret ARKUI_X_IOS_FRAMEWORK_URL（zip 包，内含 libarkui_ios.xcframework）"
-            exit 1
+          SDK_URL="https://contentcenter-drcn.dbankcdn.cn/pub_1/DevEcoSpace_1_900_9/6f/v3/x-GBbqu3So2gK5Y1dc-Blw/nxSlk9koR_-dKDUKV4c26Q.zip"
+          SDK_SHA256="ee213c09196d4f0433273b65b7c6665083fbb7cef186257fe4bba382744fc9d0"
+          if [ ! -f /tmp/arkui-x-macos-sdk.zip ]; then
+            curl -L --fail --retry 3 "$SDK_URL" -o /tmp/arkui-x-macos-sdk.zip
           fi
+          echo "$SDK_SHA256  /tmp/arkui-x-macos-sdk.zip" | shasum -a 256 -c -
+          rm -rf /tmp/arkui-x-framework
+          mkdir -p /tmp/arkui-x-framework
+          unzip -q /tmp/arkui-x-macos-sdk.zip \
+            'arkui-x/engine/xcframework/arkui/ios-release/libarkui_ios.xcframework/*' \
+            -d /tmp/arkui-x-framework
           mkdir -p .arkui-x/ios/frameworks
-          curl -L --fail --retry 3 \
-            "$ARKUI_X_IOS_FRAMEWORK_URL" \
-            -o /tmp/arkui-ios-framework.zip
-          rm -rf /tmp/arkui-ios-framework
-          mkdir -p /tmp/arkui-ios-framework
-          unzip -q /tmp/arkui-ios-framework.zip -d /tmp/arkui-ios-framework
-          FW="$(find /tmp/arkui-ios-framework -type d -name 'libarkui_ios.xcframework' | head -n 1)"
-          if [ -z "$FW" ]; then
-            echo "::error::zip 中没有找到 libarkui_ios.xcframework"
-            exit 1
-          fi
           rm -rf .arkui-x/ios/frameworks/libarkui_ios.xcframework
-          cp -R "$FW" .arkui-x/ios/frameworks/
+          cp -R /tmp/arkui-x-framework/arkui-x/engine/xcframework/arkui/ios-release/libarkui_ios.xcframework \
+            .arkui-x/ios/frameworks/
 
       - name: Show Xcode
         run: xcodebuild -version

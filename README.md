@@ -92,7 +92,7 @@ hvigorw -p product=default -p buildMode=debug assembleApp --no-daemon
 > `libarkui_ios.xcframework`。无签名包的 macOS/云构建步骤见
 > **[docs/IOS_UNSIGNED_CLOUD_BUILD.md](docs/IOS_UNSIGNED_CLOUD_BUILD.md)**；
 > 已预生成 `.arkui-x/ios/arkui-x/`，并附 `scripts/build_unsigned_ios.sh` 和
-> GitHub Actions 模板。
+> GitHub Actions 模板（自动下载 macOS SDK，无需 Secret）。
 
 ### 自检
 
