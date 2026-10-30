@@ -106,9 +106,10 @@ xcodebuild \
 **不需要配置 Secret。** workflow 会自动校验 SDK sha256、解压出
 `libarkui_ios.xcframework`，再执行 `scripts/build_unsigned_ios.sh`。
 
-> 这个模板没有在真实 macOS runner 上跑过；第一次跑如果 Xcode 版本、
-> deployment target 或 SDK 切片不匹配，按 Actions 日志调整 `runs-on` /
-> Xcode 版本。
+> **已验证跑通**（2026-10-30）：
+> run [41035434937](https://github.com/WuYinStudio/com_wuyin_video_arkui_x/actions/runs/41035434937)，
+> commit `578fa13`，runner `macos-26-intel` / Xcode 26.6；
+> artifact `wuyin-ios-unsigned-Release`，约 41.8 MB。
 
 ## 未签名 ipa 的限制
 
