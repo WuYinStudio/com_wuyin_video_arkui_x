@@ -1,0 +1,40 @@
+# DevEco / hvigor
+/.hvigor/
+/.idea/
+/build/
+/entry/build/
+/entry/.preview/
+/oh_modules/
+**/oh_modules/
+/node_modules/
+
+# 本地 SDK 路径与签名
+local.properties
+*.p12
+*.cer
+*.p7b
+*.jks
+*.keystore
+
+# ArkUI-X 跨平台产物与平台工程临时文件
+.arkui-x/build/
+.arkui-x/android/.gradle/
+.arkui-x/android/build/
+.arkui-x/android/app/build/
+.arkui-x/android/local.properties
+.arkui-x/android/app/libs/*.jar
+.arkui-x/android/app/libs/**/*.so
+.arkui-x/android/app/src/main/assets/arkui-x/
+# 注意：.arkui-x/ios/arkui-x/ 是 `ace build bundle` 预编译的 ArkTS 产物，
+# 为了让没有 HarmonyOS SDK 的 macOS 云构建也能直接打包，这里不忽略（约 50 MB）。
+# 如只在本地 DevEco 构建，可自行恢复忽略规则。
+# iOS 依赖库体积大、按平台分发，只保留说明文件
+.arkui-x/ios/frameworks/*
+!.arkui-x/ios/frameworks/README.md
+.arkui-x/ios/build/
+.arkui-x/ios/DerivedData/
+*.xcuserstate
+
+# 系统文件
+.DS_Store
+Thumbs.db

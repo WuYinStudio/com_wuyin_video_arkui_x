@@ -1,0 +1,23 @@
+{
+  // 标记参与跨平台编译的模块，模块名与 entry/src/main/module.json5 的 module.name 一致。
+  "crossplatform": true,
+  "modules": [
+    "entry"
+  ],
+  "platforms": [
+    "android",
+    "ios"
+  ],
+  // 本文件只接受 crossplatform / modules / buildOption / platforms 四个字段，
+  // 其余字段会让 hvigor 在配置阶段直接报 Configuration Error 退出。
+  //
+  // buildOption.ignoreCrossPlatform：schema 里声明的“把跨平台不支持的 API 从错误降级为告警”开关。
+  // 注意：本机 DevEco 26（hvigor 6.26.8）/ ArkUI-X 插件 4.26.8 实测该开关**未生效**
+  // （打开前后同样报 11706007），所以不能依赖它绕过门禁；仍有 13 处 replaceUrl 等
+  // HarmonyOS 专有调用需要按 docs/PORT_TO_SKELETON.md 第八节改造。
+  // 保留它是为了：换到确实支持该开关的 DevEco/ArkUI-X 版本时能直接生效，且语义与官方 schema 一致。
+  // 旧工程把它错写成顶层 "ignoreCrossPlatform"，属于 schema 非法字段，会让构建直接失败。
+  "buildOption": {
+    "ignoreCrossPlatform": true
+  }
+}

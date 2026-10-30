@@ -1,0 +1,65 @@
+<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10.000000" height="10.000000" fill="none" customFrame="#000000">
+	<defs>
+		<filter id="pixso_custom_mask_type_alpha">
+			<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0 " />
+		</filter>
+		<clipPath id="clipPath_10">
+			<rect width="40.000244" height="40.000000" x="-15.000000" y="-15.000000" fill="rgb(255,255,255)" />
+		</clipPath>
+	</defs>
+	<mask id="mask_9" width="10.000000" height="10.000000" x="0.000000" y="0.000000" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_alpha)">
+			<g id="mask_18">
+				<rect id="矩形 542561" width="10.000000" height="10.000000" x="0.000000" y="0.000000" rx="5.000000" fill="rgb(196,196,196)" />
+			</g>
+		</g>
+	</mask>
+	<g id="eraser_medium_dark" mask="url(#mask_9)">
+		<g id="组合 29572">
+			<g id="矩形 542570" customFrame="url(#clipPath_10)">
+				<rect id="矩形 542570" width="40.000244" height="40.000000" x="-15.000000" y="-15.000000" />
+				<rect id="容器 29537" width="40.000244" height="40.000000" x="-15.000000" y="-15.000000" />
+				<g id="组合 29567">
+					<rect id="矩形 542471" width="5.000000" height="5.000000" x="-15.000000" y="-15.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542475" width="5.000000" height="5.000000" x="-15.000000" y="-5.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542473" width="5.000000" height="5.000000" x="-9.999878" y="-10.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542477" width="5.000000" height="5.000000" x="-10.000000" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542472" width="5.000000" height="5.000000" x="-4.999878" y="-15.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542476" width="5.000000" height="5.000000" x="-4.999878" y="-5.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542474" width="5.000000" height="5.000000" x="0.000000" y="-10.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542478" width="4.999998" height="4.999999" x="0.000122" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+				</g>
+				<g id="组合 29568">
+					<rect id="矩形 542471" width="5.000000" height="5.000000" x="5.000122" y="-15.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542475" width="5.000000" height="5.000000" x="5.000122" y="-5.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542473" width="5.000000" height="5.000000" x="10.000244" y="-10.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542477" width="5.000000" height="5.000000" x="10.000122" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542472" width="5.000000" height="5.000000" x="15.000244" y="-15.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542476" width="5.000000" height="5.000000" x="15.000244" y="-5.000244" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542474" width="5.000000" height="5.000000" x="20.000122" y="-10.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542478" width="5.000000" height="4.999999" x="20.000244" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+				</g>
+				<g id="组合 29569">
+					<rect id="矩形 542471" width="5.000000" height="5.000000" x="-15.000000" y="5.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542475" width="5.000000" height="5.000000" x="-15.000000" y="14.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542473" width="5.000000" height="5.000000" x="-9.999878" y="9.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542477" width="5.000000" height="5.000000" x="-10.000000" y="20.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542472" width="5.000000" height="5.000000" x="-4.999878" y="5.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542476" width="5.000000" height="5.000000" x="-4.999878" y="14.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542474" width="5.000000" height="5.000000" x="0.000000" y="10.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542478" width="4.999998" height="5.000000" x="0.000122" y="20.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+				</g>
+				<g id="组合 29570">
+					<rect id="矩形 542471" width="5.000000" height="5.000000" x="5.000122" y="5.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542475" width="5.000000" height="5.000000" x="5.000122" y="14.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542473" width="5.000000" height="5.000000" x="10.000244" y="9.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542477" width="5.000000" height="5.000000" x="10.000122" y="20.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542472" width="5.000000" height="5.000000" x="15.000244" y="5.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542476" width="5.000000" height="5.000000" x="15.000244" y="14.999756" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542474" width="5.000000" height="5.000000" x="20.000122" y="10.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+					<rect id="矩形 542478" width="5.000000" height="5.000000" x="20.000244" y="20.000000" fill="rgb(255,255,255)" fill-opacity="0.100000001" />
+				</g>
+			</g>
+		</g>
+	</g>
+</svg>

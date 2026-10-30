@@ -1,0 +1,112 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    // ArkUI-X：Android 侧只识别自定义 Scheme（wuyin://player），AndroidManifest 中另声明
+    // ACTION_VIEW / ACTION_SEND intent-filter；iOS 侧在 Info.plist 注册 CFBundleURLTypes。
+    "querySchemes": [
+      "wuyin"
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.GET_NETWORK_INFO",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        // 仅供 HarmonyOS 构建需要；Android 的局域网/本地网络权限、iOS 的
+        // NSLocalNetworkUsageDescription 由平台工程声明。
+        "name": "ohos.permission.DISTRIBUTED_DATASYNC",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ],
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:icon",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          },
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "uris": [
+              {
+                "scheme": "wuyin",
+                "host": "player"
+              }
+            ]
+          },
+          {
+            // Android/iOS 通过「打开方式/分享」把协播同步 TXT 交给本应用时，
+            // 统一由 EntryAbility 解析 Want.uri 或 share_data 参数。
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "utd": "general.text",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.plain-text",
+                "maxFileSupported": 1
+              }
+            ]
+          }
+        ]
+      }
+    ]
+    // ArkUI-X 不支持 extensionAbilities（系统分享扩展），原 ShareExtensionAbility 已归档到
+    // legacy/harmonyos-only/，分享接收改由 EntryAbility + 平台 intent-filter/URL Scheme 承担。
+  }
+}

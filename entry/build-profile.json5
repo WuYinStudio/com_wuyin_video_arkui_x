@@ -1,0 +1,38 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "resOptions": {
+      "copyCodeResource": {
+        "enable": false
+      }
+    }
+  },
+  "buildOptionSet": [
+    {
+      "name": "release",
+      "arkOptions": {
+        "obfuscation": {
+          "ruleOptions": {
+            "enable": false,
+            "files": [
+              "./obfuscation-rules.txt"
+            ]
+          }
+        }
+      }
+    },
+  ],
+  // 注意：targets 只允许 name / config / source / resource / runtimeOS / output 六个字段，
+  // 这里不能写 "platforms"（旧工程写过，会被 hvigor 报 Configuration Error 直接中断构建）。
+  // Android / iOS 的应用标识因此落在平台工程自身：
+  //   applicationId / versionCode / abiFilters → .arkui-x/android/app/build.gradle
+  //   bundleId / 版本号                          → .arkui-x/ios/app.xcodeproj/project.pbxproj + Info.plist
+  "targets": [
+    {
+      "name": "default"
+    },
+    {
+      "name": "ohosTest",
+    }
+  ]
+}

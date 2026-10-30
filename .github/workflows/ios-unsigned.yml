@@ -1,0 +1,67 @@
+name: iOS unsigned build
+
+# 说明：
+#   - 这是“无签名 iOS 包”的 macOS 云构建模板，不依赖 Apple 开发者证书。
+#   - 运行前必须配置仓库 Secret：ARKUI_X_IOS_FRAMEWORK_URL
+#     该 URL 指向一个 zip，里面包含 libarkui_ios.xcframework。
+#   - 未签名 ipa 不能直接装到未越狱设备，只适合后续重签或 CI 验证。
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install libarkui_ios.xcframework
+        env:
+          ARKUI_X_IOS_FRAMEWORK_URL: ${{ secrets.ARKUI_X_IOS_FRAMEWORK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ARKUI_X_IOS_FRAMEWORK_URL:-}" ]; then
+            echo "::error::缺少 Secret ARKUI_X_IOS_FRAMEWORK_URL（zip 包，内含 libarkui_ios.xcframework）"
+            exit 1
+          fi
+          mkdir -p .arkui-x/ios/frameworks
+          curl -L --fail --retry 3 \
+            "$ARKUI_X_IOS_FRAMEWORK_URL" \
+            -o /tmp/arkui-ios-framework.zip
+          rm -rf /tmp/arkui-ios-framework
+          mkdir -p /tmp/arkui-ios-framework
+          unzip -q /tmp/arkui-ios-framework.zip -d /tmp/arkui-ios-framework
+          FW="$(find /tmp/arkui-ios-framework -type d -name 'libarkui_ios.xcframework' | head -n 1)"
+          if [ -z "$FW" ]; then
+            echo "::error::zip 中没有找到 libarkui_ios.xcframework"
+            exit 1
+          fi
+          rm -rf .arkui-x/ios/frameworks/libarkui_ios.xcframework
+          cp -R "$FW" .arkui-x/ios/frameworks/
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Build unsigned IPA
+        env:
+          IOS_CONFIGURATION: ${{ inputs.configuration }}
+        run: bash scripts/build_unsigned_ios.sh
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: wuyin-ios-unsigned-${{ inputs.configuration }}
+          path: build/ios-unsigned/app-unsigned.ipa
+          if-no-files-found: error

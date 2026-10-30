@@ -1,0 +1,11 @@
+# 复制为 local.properties 后按本机安装路径填写（该文件不要提交到版本库）
+#
+# OpenHarmony/HarmonyOS SDK 根目录（DevEco Studio > Settings > SDK 中可查看）
+sdk.dir=F:/APPS/DevEcoStudio/DevEco Studio/sdk
+#
+# ArkUI-X SDK 根目录（DevEco Studio 安装 ArkUI-X 插件后自动下载，
+# 也可从 repo.huaweicloud.com 下载 ArkUI-X SDK）
+arkui-x.dir=F:/APPS/ArkUI-X/Sdk
+#
+# Android 侧 SDK（.arkui-x/android/local.properties 同样需要，格式为 sdk.dir=...）
+android.sdk.dir=F:/APPS/AndroidSDK/Sdk

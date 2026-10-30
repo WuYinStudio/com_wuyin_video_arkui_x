@@ -1,0 +1,24 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FF070A11"
+    },
+    {
+      "name": "page_background",
+      "value": "#FF212121"
+    },
+    {
+      "name": "category_page_background",
+      "value": "#FF070A11"
+    },
+    {
+      "name": "category_unselected_text",
+      "value": "#FFA7B4C9"
+    },
+    {
+      "name": "category_selected_text",
+      "value": "#FFF4F7FF"
+    }
+  ]
+}

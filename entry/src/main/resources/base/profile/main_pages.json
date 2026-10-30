@@ -1,0 +1,25 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/PlayerPage",
+    "pages/LoginPage",
+    "pages/RegisterPage",
+    "pages/MessagePage",
+    "pages/ChatRoomsPage",
+    "pages/ChatRoomPage",
+    "pages/ThemeStorePage",
+    "pages/WallpaperPage",
+    "pages/LiveTvPage",
+    "pages/LivePlayerPage",
+    "pages/FriendsPage",
+    "pages/UserProfilePage",
+    "pages/ForumPage",
+    "pages/ForumDetailPage",
+    "pages/AccountCenterPage",
+    "pages/TitleRankPage",
+    "pages/UserAgreementPage",
+    "pages/AvatarUploadPage",
+    "pages/PlatformSnifferPage",
+    "pages/FollowListPage"
+  ]
+}

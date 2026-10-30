@@ -1,0 +1,32 @@
+<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40" fill="none" customFrame="#000000">
+	<mask id="mask_3" width="40" height="40" x="0" y="0" maskUnits="userSpaceOnUse" mask-type="outline">
+		<g filter="url(#pixso_custom_mask_type_outline)">
+			<use xlink:href="#use_3" />
+		</g>
+	</mask>
+	<defs>
+		<clipPath id="clipPath_6">
+			<rect width="40" height="40" x="0" y="0" fill="rgb(255,255,255)" />
+		</clipPath>
+		<circle id="use_3" cx="20" cy="20" r="20" fill="rgb(0,0,0)" fill-opacity="0.0980392173" />
+		<filter id="pixso_custom_mask_type_outline">
+			<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 255 0 " />
+		</filter>
+		<clipPath id="clipPath_7">
+			<rect width="24" height="24" x="8" y="8" fill="rgb(255,255,255)" />
+		</clipPath>
+	</defs>
+	<rect id="location_light" width="40" height="40" x="0" y="0" />
+	<g id="Mask" customFrame="url(#clipPath_6)" mask="url(#mask_3)">
+		<rect id="Mask" width="40" height="40" x="0" y="0" />
+		<use xlink:href="#use_3" />
+	</g>
+	<g id="svg" clip-path="url(#clipPath_7)" customFrame="url(#clipPath_7)">
+		<rect id="svg" width="24" height="24" x="8" y="8" />
+		<g id="Public/ic_public_gps_filled">
+			<g id="路径">
+				<path id="path-1" d="M20 8.89044C25.1055 8.89044 29.25 12.9566 29.25 17.9798C29.25 19.936 28.6574 21.8475 27.5576 23.7794C26.7086 25.2708 25.6473 26.654 24.1287 28.3694C23.5553 29.0172 22.7969 29.7514 21.8519 30.575L21.5768 30.8127C20.7041 31.5609 19.421 31.5842 18.5094 30.8616L18.1074 30.5137C17.2379 29.7513 16.6041 29.16 16.1948 28.727L16.1009 28.6261L15.8689 28.3673C12.541 24.624 10.75 21.4498 10.75 17.9798C10.75 12.9934 14.7079 8.97154 19.7334 8.89158L19.8799 8.89044L20 8.89044ZM20 15.75C18.7574 15.75 17.75 16.7574 17.75 18C17.75 19.2426 18.7574 20.25 20 20.25C21.2426 20.25 22.25 19.2426 22.25 18C22.25 16.7574 21.2426 15.75 20 15.75Z" fill="rgb(255,255,255)" fill-rule="nonzero" />
+			</g>
+		</g>
+	</g>
+</svg>

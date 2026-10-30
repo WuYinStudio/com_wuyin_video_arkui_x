@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色沉浸式主题：视频应用不需要系统的 ActionBar，启动窗口直接用黑色，
+  避免 ArkUI 首帧渲染前闪白。父主题使用平台自带样式，不引入 AppCompat 依赖，
+  因此 gradle.properties 中的 android.useAndroidX=false 保持不变。
+-->
+<resources>
+    <style name="Theme.WuYin" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>

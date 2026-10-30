@@ -1,0 +1,72 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ArkUI-X Android 壳工程：ArkTS 代码与资源由 hvigor 编译后输出到
+// app/src/main/assets/arkui-x（assembleHap / 跨平台构建任务自动同步）。
+android {
+    namespace "com.wuyin.video"
+    compileSdkVersion 34
+    // 不写 buildToolsVersion：交给 AGP 选用本机已安装的 Build Tools
+    // （模板默认的 30.0.3 在新机器上通常不存在）。
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.wuyin.video"
+        minSdkVersion 26
+        targetSdkVersion 34
+        versionCode 5010000
+        versionName "5.1.0"
+
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // arm64/arm 供真机；x86_64 供模拟器（ArkUI-X SDK 同时提供三套运行库）
+            abiFilters "arm64-v8a", "armeabi-v7a", "x86_64"
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // 按 ABI 拆分：同时产出 app-arm64-v8a-debug.apk / app-armeabi-v7a-debug.apk /
+    // app-x86_64-debug.apk 与 app-universal-debug.apk，真机装 arm64 那份即可（体积小一半）。
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a", "x86_64"
+            universalApk true
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    dynamicFeatures = []
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+}
+
+dependencies {
+    // ArkUI-X Android 适配层与引擎库（arkui_android_adapter.jar / libarkui_android.so / libhilog.so ...）
+    // 由 scripts/sync_arkui_android_libs.ps1 从 ArkUI-X SDK 复制到 app/libs。
+    implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+    testImplementation 'junit:junit:4.+'
+    androidTestImplementation 'com.android.support.test:runner:1.0.2'
+    androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
+}

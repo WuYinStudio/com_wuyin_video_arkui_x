@@ -1,0 +1,2 @@
+    include ':app'
+rootProject.name = 'com_wuyin_video_arkui_x'
