@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { router } from '@kit.ArkUI';
 import { http } from '@kit.NetworkKit';
 import fs from '@ohos.file.fs';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
@@ -22,6 +23,7 @@ import { MessageCenterPage } from './MessageCenterPage';
 import { ForumPage } from './ForumPage';
 import { LiveTvPage } from './LiveTvPage';
 import { HistoryStrip } from '../components/HistoryStrip';
+import { schemeHost, schemeValue } from '../common/ArkCard';
 
 // 暴风首页接口条目：保留轮播和综艺所需的原始字段。
 interface HomeSource {
@@ -168,7 +170,66 @@ export struct HomePage {
   private sliding: boolean = false;
   private firstBannerImagePending: boolean = false;
 
+  /** 处理 wuyinvideo:// 深链（Android intent-filter / iOS URL Types 进入）。 */
+  private consumeDeepLink(): void {
+    try {
+      const uri: string = AppStorage.get<string>('deepLinkUri') || '';
+      if (uri.length === 0) { return; }
+      AppStorage.delete('deepLinkUri');
+      const host: string = schemeHost(uri);
+      Logger.info('HOME', '处理深链：host=' + host + '，uri=' + uri);
+      if (host === 'play') {
+        const vodId: string = schemeValue(uri, 'vodId');
+        const episode: string = schemeValue(uri, 'episodeIndex');
+        const wzlj: string = schemeValue(uri, 'wzlj');
+        const title: string = schemeValue(uri, 'title');
+        const cover: string = schemeValue(uri, 'cover');
+        if (wzlj.length === 0) {
+          Logger.warn('HOME', '深链 play 缺少 wzlj，只能打开播放器空壳：' + uri);
+          this.toast('该分享缺少播放地址（wzlj），请从 App 内分享');
+        }
+        const params: Record<string, string> = {
+          'vodId': vodId, 'episodeIndex': episode, 'wzlj': wzlj, 'tilie': title, 'yhm': title, 'feng': cover
+        };
+        void router.pushUrl({ url: 'pages/PlayerPage', params: params });
+        return;
+      }
+      if (host === 'post') {
+        const postId: string = schemeValue(uri, 'postId');
+        const params: Record<string, string> = { 'postId': postId };
+        void router.pushUrl({ url: 'pages/ForumDetailPage', params: params });
+        return;
+      }
+      if (host === 'live') {
+        const liveId: string = schemeValue(uri, 'liveId');
+        Logger.info('HOME', '深链直播：' + liveId);
+        AppState.go('live');
+        return;
+      }
+      if (host === 'joinSession') {
+        const sessionId: string = schemeValue(uri, 'sessionId');
+        const vodId: string = schemeValue(uri, 'vodId');
+        const episode: string = schemeValue(uri, 'episodeIndex');
+        const params: Record<string, string> = {
+          'sessionId': sessionId, 'vodId': vodId, 'episodeIndex': episode, 'coPlayEntry': 'deeplink'
+        };
+        void router.pushUrl({ url: 'pages/PlayerPage', params: params });
+        return;
+      }
+      if (host === 'audio') {
+        AppState.go('message');
+        return;
+      }
+      if (host === 'download' || host === 'notice') {
+        AppState.go('message');
+      }
+    } catch (error) {
+      Logger.warn('HOME', '处理深链失败：' + String(error));
+    }
+  }
+
   aboutToAppear(): void {
+    this.consumeDeepLink();
     this.pageAlive = true;
     try {
       NavigationScroll.reset(this.page, '进入导航宿主');

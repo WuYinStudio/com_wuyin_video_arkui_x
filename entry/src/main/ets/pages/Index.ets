@@ -13,6 +13,7 @@ import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { AgreementService } from '../common/AgreementService';
 import { Logger } from '../common/Logger';
+import { NavigationScroll } from '../common/NavigationScroll';
 import { ShareService, SharedPlayerRouteParams } from '../common/ShareService';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop } from '../common/UiWidgets';
@@ -136,10 +137,38 @@ struct Index {
 
   onBackPress(): boolean {
     try {
-      return !this.agreementReady || this.needsAgreement();
+      if (!this.agreementReady || this.needsAgreement()) {
+        return true;
+      }
+      return this.consumeBackForNavigationBar();
     } catch (error) {
       Logger.error('UserAgreement', '拦截协议页面返回失败：' + String(error));
       return true;
+    }
+  }
+
+  /**
+   * 底栏被滚动藏起来时，第一次返回只负责把底栏显示回来，不退出、也不回退页面；
+   * 底栏本来就是显示状态时不拦截，交给系统按默认行为处理（退出应用）。
+   */
+  private consumeBackForNavigationBar(): boolean {
+    try {
+      const page: string = AppStorage.get<string>('page') ?? 'home';
+      const tabPages: string[] = ['home', 'category', 'manage', 'settings', 'mine'];
+      if (tabPages.indexOf(page) < 0) {
+        // 不在带底栏的标签页上，保持原有返回行为。
+        return false;
+      }
+      const hidden: boolean = AppStorage.get<boolean>('navigationBarHidden') ?? false;
+      if (!hidden) {
+        return false;
+      }
+      NavigationScroll.reset(page, '返回键显示底部导航栏');
+      Logger.info('NAV_BACK', '底栏隐藏状态下按返回：本次只恢复底栏，页面=' + page);
+      return true;
+    } catch (error) {
+      Logger.warn('NAV_BACK', '返回键恢复底栏失败：' + String(error));
+      return false;
     }
   }
 

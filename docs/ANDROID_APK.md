@@ -131,3 +131,21 @@ Android SDK（platform 34 / build-tools 36.0.0）、Gradle 9.4.0 + AGP 9.1.1、J
    ArkUI-X 既未适配、也不允许 `as Object` 中转。要彻底恢复需拆「双 HAP / 双模块」分层，或等 ArkUI-X 适配。
 4. **iOS**：仍未编译（需 macOS + `libarkui_ios.xcframework`），见 `.arkui-x/ios/frameworks/README.md`。
 5. **QQ 登录**：`TencentSdkService` 仍是空实现，点击提示未集成（第一步就如此）。
+
+## 七、构建环境适配（2026-10-30 命令行复验）
+
+换到命令行（不带 DevEco 的 Terminal 环境）复验时踩到两个环境问题，均已修：
+
+1. **`local.properties` 的转义路径**：DevEco 按 Java properties 规则写入
+   `arkui-x.dir=F\:\\APPS\\ArkUI-X\\Sdk`，`sync_arkui_android_libs.ps1` 直接当路径用会落到不存在的
+   `F\:` 上（`Get-ChildItem` 报「找不到 Directory 参数」）。脚本已加 `ConvertFrom-PropertyPath`
+   还原 `\:` / `\\`。注意脚本必须保持 **UTF-8 with BOM**，否则 Windows PowerShell 5.1 会把中文注释读成乱码而解析失败。
+2. **Gradle 起不来（提交内存不足）**：本机 32 GB 内存 + 系统托管 25.6 GB 页面文件时提交上限约 56 GB，
+   高峰期 `:app:packageDebug` 会报
+   `os::commit_memory(...) failed: 页面文件太小` 或 `Failed to commit static region`。
+   `.arkui-x/android/gradle.properties` 已改为
+   `-Xms128m -Xmx1024m -XX:+UseSerialGC -XX:MaxMetaspaceSize=384m`（G1 会预留大段虚拟空间，SerialGC 不会），
+   并加 `org.gradle.daemon=false`、`org.gradle.workers.max=2`。
+   释放内存后 `assembleApp` 与 `gradlew assembleDebug` 均一次通过：
+   HAP 6.5 MB、arm64 APK 92.4 MB、universal 191.2 MB。
+

@@ -97,12 +97,19 @@ export struct UserAgreementPage {
       this.isSubmitting = true;
       this.actionError = '';
       Logger.info('UserAgreement', '用户点击同意协议');
-      await AgreementService.accept(getContext(this) as common.UIAbilityContext);
-      if (!this.agreementAccepted) {
-        this.actionError = '保存同意状态失败，请重试或退出软件。';
+      const persisted: boolean = await AgreementService.accept(getContext(this) as common.UIAbilityContext);
+      if (!persisted) {
+        // 已放行本次启动：iOS 上 preferences 可能不可用，文件标记也失败时只提示、不拦截。
+        try {
+          this.getUIContext().getPromptAction().showToast({
+            message: '已同意；本机未能保存状态，下次启动可能需要重新同意'
+          });
+        } catch (toastError) {
+          Logger.warn('UserAgreement', '提示未能弹出：' + String(toastError));
+        }
       }
     } catch (error) {
-      this.actionError = '保存同意状态失败，请重试或退出软件。';
+      this.actionError = '同意协议失败，请重试或退出软件。';
       Logger.error('UserAgreement', '同意协议失败：' + String(error));
     } finally {
       this.isSubmitting = false;

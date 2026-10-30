@@ -22,14 +22,27 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $libs = Join-Path $repo ".arkui-x\android\app\libs"
 
+# DevEco Studio 写 local.properties 时会按 Java properties 规则转义路径
+# （`F\:\\APPS\\ArkUI-X\\Sdk`）：冒号和反斜杠都带反斜杠。直接当路径用会落到
+# 不存在的 `F\:` 上，Get-ChildItem 甚至会报“找不到 Directory 参数”。这里统一还原。
+function ConvertFrom-PropertyPath {
+    param([string]$Value)
+    $p = $Value.Trim()
+    if ($p.Length -ge 2 -and $p.StartsWith('"') -and $p.EndsWith('"')) { $p = $p.Substring(1, $p.Length - 2) }
+    $p = $p -replace '\\\\', '\'
+    $p = $p -replace '\\:', ':'
+    $p = $p -replace '\\=', '='
+    return $p.Replace('/', '\')
+}
+
 function Resolve-SdkRoot {
     param([string]$Explicit)
-    if ($Explicit) { return $Explicit }
+    if ($Explicit) { return (ConvertFrom-PropertyPath $Explicit) }
     $localProps = Join-Path $repo "local.properties"
     if (Test-Path $localProps) {
         foreach ($line in Get-Content $localProps) {
             if ($line -match '^\s*arkui-x\.dir\s*=\s*(.+?)\s*$') {
-                return $Matches[1].Replace('/', '\')
+                return (ConvertFrom-PropertyPath $Matches[1])
             }
         }
     }

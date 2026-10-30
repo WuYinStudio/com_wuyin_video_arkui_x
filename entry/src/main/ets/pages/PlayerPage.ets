@@ -24,6 +24,10 @@ import { Quest3ControlService, Quest3CoPlayPayload, Quest3StatePacket } from '..
 import { DanmakuService, DanmakuItem, DanmakuSettings, DanmakuSearchResult } from '../common/DanmakuService';
 import { MediaSniffer, SniffResult } from '../common/MediaSniffer';
 import { PlatformApi } from '../common/compat/PlatformApi';
+import { AccountApi } from '../common/AccountApi';
+import { CommunityApi } from '../common/CommunityApi';
+import { SocialStore } from '../common/SocialStore';
+import { buildVideoCard, VideoShareArgs } from '../common/VideoCardBuilder';
 
 export interface SearchVideoItem extends RecordVideoSource { yhm: string; feng: string; sfeng: string; data: string; tilie: string; wzlj: string; genxi: string; zyuanuuu: string; vodId: string; resourceType?: string; localPath?: string; }
 export interface EpisodeItem { title: string; playUrl: string; }
@@ -226,6 +230,9 @@ struct PlayerPage {
   private player?: media.AVPlayer;
   /** 直播源：失败时不弹「播放异常」错误卡，只提示可切换线路。 */
   private liveMode: boolean = false;
+  @State private shareGroupVisible: boolean = false;
+  @State private shareRooms: string[] = [];
+  @State private shareFriends: string[] = [];
   private appWindow?: window.Window;
   private listeningWindow?: window.Window;
   private windowSizeCallback = (size: window.Size): void => {
@@ -1318,6 +1325,205 @@ struct PlayerPage {
       } catch (error) { Logger.warn('PLAYER_SOURCE', '在线资源地址规范化失败：' + String(error)); return original; }
       return target;
     }
+    /** 分享当前播放的影视到群聊：先拉群列表，再选一个发送卡片。 */
+  private async shareToGroup(): Promise<void> {
+    try {
+      const rooms = await AccountApi.roomList();
+      this.shareRooms = [];
+      for (const room of rooms) {
+        this.shareRooms.push(room.title);
+      }
+      this.shareFriends = [];
+      try {
+        const session = await CommunityApi.readSession();
+        if (session.valid()) {
+          const friends = await AccountApi.mutualFriends(session.user, session.pass);
+          for (const friend of friends) {
+            this.shareFriends.push(friend.name.length > 0 ? friend.name + '|' + friend.user : friend.user);
+          }
+          if (this.shareFriends.length === 0) {
+            // 互关为空时退回本地好友列表
+            for (const local of SocialStore.friendsList()) {
+              this.shareFriends.push(local.name.length > 0 ? local.name + '|' + local.account : local.account);
+            }
+          }
+        }
+      } catch (error) {
+        Logger.warn('PLAYER_SHARE', '拉取好友失败：' + String(error));
+      }
+      if (this.shareRooms.length === 0 && this.shareFriends.length === 0) {
+        this.toast('还没有可分享的群聊或好友');
+        return;
+      }
+      this.shareGroupVisible = true;
+    } catch (error) {
+      Logger.warn('PLAYER_SHARE', '拉取群列表失败：' + String(error));
+      this.toast('拉取群列表失败');
+    }
+  }
+
+  /** 把当前影视参数拼成卡片并发到指定群。 */
+  private async sendCardToGroup(room: string): Promise<void> {
+    try {
+      const session = await CommunityApi.readSession();
+      if (!session.valid()) {
+        this.toast('请先登录后再分享');
+        return;
+      }
+      const args: VideoShareArgs = new VideoShareArgs();
+      args.vodId = this.video?.vodId || '';
+      args.episodeIndex = this.episodeIndex + 1;
+      args.wzlj = this.video?.wzlj || '';
+      args.title = this.video?.tilie || this.video?.yhm || '无音影视';
+      args.episodeTitle = this.episodes.length > this.episodeIndex && this.episodes[this.episodeIndex] !== undefined
+        ? this.episodes[this.episodeIndex].title : '';
+      args.cover = this.video?.feng || '';
+      args.durationText = this.durationMs > 0 ? this.clockOfMs(this.durationMs) : '';
+      const xml: string = buildVideoCard(args);
+      try {
+        await CommunityApi.sendChat(session, room, xml);
+      } catch (error) {
+        const text: string = String(error);
+        if (text.indexOf('成功') < 0) { throw new Error(text); }
+        Logger.info('PLAYER_SHARE', '群发送返回成功文案，按成功处理：' + text);
+      }
+      this.shareGroupVisible = false;
+      this.toast('已分享到「' + room + '」');
+    } catch (error) {
+      Logger.error('PLAYER_SHARE', '分享到群失败：' + String(error));
+      this.toast('分享失败：' + String(error));
+    }
+  }
+
+  /** 分享到好友私聊（friendchat.php）。 */
+  private async sendCardToFriend(display: string): Promise<void> {
+    try {
+      const account: string = display.indexOf('|') > 0 ? display.substring(display.indexOf('|') + 1) : display;
+      const session = await CommunityApi.readSession();
+      if (!session.valid()) {
+        this.toast('请先登录后再分享');
+        return;
+      }
+      const xml: string = this.buildShareCardXml();
+      try {
+        await AccountApi.sendFriendChat(session.user, session.pass, account, xml);
+      } catch (error) {
+        const text: string = String(error);
+        if (text.indexOf('成功') < 0) { throw new Error(text); }
+        Logger.info('PLAYER_SHARE', '好友发送返回成功文案，按成功处理：' + text);
+      }
+      this.shareGroupVisible = false;
+      this.toast('已分享给好友');
+    } catch (error) {
+      Logger.error('PLAYER_SHARE', '分享给好友失败：' + String(error));
+      this.toast('分享失败：' + String(error));
+    }
+  }
+
+  /** 当前播放参数 → 卡片 XML。 */
+  private buildShareCardXml(): string {
+    const args: VideoShareArgs = new VideoShareArgs();
+    args.vodId = this.video?.vodId || '';
+    args.episodeIndex = this.episodeIndex + 1;
+    args.wzlj = this.video?.wzlj || '';
+    args.title = this.video?.tilie || this.video?.yhm || '无音影视';
+    args.episodeTitle = this.episodes.length > this.episodeIndex && this.episodes[this.episodeIndex] !== undefined
+      ? this.episodes[this.episodeIndex].title : '';
+    args.cover = this.video?.feng || '';
+    args.durationText = this.durationMs > 0 ? this.clockOfMs(this.durationMs) : '';
+    return buildVideoCard(args);
+  }
+
+  private clockOfMs(ms: number): string {
+    const total: number = Math.max(0, Math.floor(ms / 1000));
+    const min: number = Math.floor(total / 60);
+    const sec: number = total % 60;
+    return (min < 10 ? '0' : '') + String(min) + ':' + (sec < 10 ? '0' : '') + String(sec);
+  }
+
+  @Builder
+  private shareGroupPanel() {
+    Column({ space: '10vp' }) {
+      Row() {
+        Text('分享到群聊')
+          .fontSize(Ui.fs('16vp', this.fontScale))
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+        Text('关闭')
+          .fontSize(Ui.fs('12vp', this.fontScale))
+          .fontColor('#B3FFFFFF')
+          .onClick(() => { this.shareGroupVisible = false; })
+      }
+        .width('100%')
+      if (this.shareRooms.length > 0) {
+        Text('群聊')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor('#99FFFFFF')
+          .width('100%')
+      }
+      List({ space: '8vp' }) {
+        ForEach(this.shareRooms, (room: string) => {
+          ListItem() {
+            Row() {
+              Text(room)
+                .fontSize(Ui.fs('14vp', this.fontScale))
+                .fontColor('#FFFFFF')
+                .maxLines(1)
+                .layoutWeight(1)
+              Text('发送')
+                .fontSize(Ui.fs('11vp', this.fontScale))
+                .fontColor('#FFD08A')
+            }
+              .width('100%')
+              .padding({ top: '10vp', bottom: '10vp', left: '12vp', right: '12vp' })
+              .borderRadius('12vp')
+              .backgroundColor('#22FFFFFF')
+              .onClick(() => { void this.sendCardToGroup(room); })
+          }
+        }, (room: string) => 'share-room-' + room)
+      }
+        .width('100%')
+        .height(this.shareFriends.length > 0 ? '150vp' : '240vp')
+        .scrollBar(BarState.Off)
+      if (this.shareFriends.length > 0) {
+        Text('好友')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor('#99FFFFFF')
+          .width('100%')
+        List({ space: '8vp' }) {
+          ForEach(this.shareFriends, (friend: string) => {
+            ListItem() {
+              Row() {
+                Text(friend.indexOf('|') > 0 ? friend.substring(0, friend.indexOf('|')) : friend)
+                  .fontSize(Ui.fs('14vp', this.fontScale))
+                  .fontColor('#FFFFFF')
+                  .maxLines(1)
+                  .layoutWeight(1)
+                Text('发送')
+                  .fontSize(Ui.fs('11vp', this.fontScale))
+                  .fontColor('#FFD08A')
+              }
+                .width('100%')
+                .padding({ top: '10vp', bottom: '10vp', left: '12vp', right: '12vp' })
+                .borderRadius('12vp')
+                .backgroundColor('#22FFFFFF')
+                .onClick(() => { void this.sendCardToFriend(friend); })
+            }
+          }, (friend: string) => 'share-friend-' + friend)
+        }
+          .width('100%')
+          .height('150vp')
+          .scrollBar(BarState.Off)
+      }
+    }
+      .width('88%')
+      .constraintSize({ maxWidth: '460vp' })
+      .padding('16vp')
+      .borderRadius('18vp')
+      .backgroundColor('#CC000000')
+  }
+
     private async selectSource(keepPosition: boolean): Promise<void> {
       if (this.disposed) { return; }
       const requestVersion: number = ++this.sourceRequestVersion;
@@ -1667,6 +1873,7 @@ struct PlayerPage {
         // 返回按钮全局显示（竖屏与全屏都显示）。
         this.topIconButton($r('sys.symbol.chevron_left_circle'), '返回', () => { void this.back(); });
         Row({ space: this.topControlGap() }) {
+          this.topIconButton($r('sys.symbol.share'), '分享到群', () => { void this.shareToGroup(); });
           this.topIconButton($r('sys.symbol.camera'), '截图', () => { void this.screenshot(); });
           this.topIconButton($r('sys.symbol.wireless_projection'), '投屏', () => { this.toast('尚未接入投屏服务'); });
           this.topIconButton($r('sys.symbol.square_grid_2x2'), '隔空传送', () => { void this.shareCurrentEpisode('airdrop'); });
@@ -2206,6 +2413,18 @@ struct PlayerPage {
           });
           // 播放中同样展示聊天室实时提醒（顶部弹窗不拦截视频手势，7 秒自动收起）。
           ChatNoticeBanner()
+          if (this.shareGroupVisible) {
+            Stack({ alignContent: Alignment.Center }) {
+              Column()
+                .width('100%')
+                .height('100%')
+                .backgroundColor('#66000000')
+                .onClick(() => { this.shareGroupVisible = false; })
+              this.shareGroupPanel()
+            }
+              .width('100%')
+              .height('100%')
+          }
         }.width('100%').height('100%').backgroundColor(this.canvas())
         // 当前 SDK 没有 SafeAreaType.None 命名成员；零类型掩码表示不启用安全区避让。
           // 根容器统一扩展进状态栏（不再让系统预留安全区），

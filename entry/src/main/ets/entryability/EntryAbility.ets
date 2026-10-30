@@ -104,18 +104,31 @@ export default class EntryAbility extends UIAbility {
   private shareRevision: number = 0;
   private lanOpening: boolean = false;
 
+  /** 记录 wuyinvideo:// 深链，交给界面路由（音频/视频/通知/下载/帖子）。 */
+  private captureDeepLink(want: Want): void {
+    const uri: string = wantUri(want) || '';
+    if (uri.indexOf('wuyinvideo://') !== 0) { return; }
+    AppStorage.setOrCreate<string>('deepLinkUri', uri);
+    Logger.info('SCHEME', '收到深链：' + uri);
+  }
+
   onCreate(want: Want): void {
     // 在 Ability 创建时传入应用标识，不再等到窗口创建后无 appId 地初始化 QQ SDK。
     void this.initializeQQOpenSdk();
     // 分享接收使用真实的 UIAbility Want 回调，不注册不存在的华为分享事件。
     try { void this.captureSharedWant(want, '冷启动'); }
     catch (error) { Logger.error('SCHEME', '读取冷启动分享链接失败：' + String(error)); }
+    // QQ/TG 富文本卡片：wuyinvideo:// 深链
+    try { this.captureDeepLink(want); }
+    catch (error) { Logger.error('SCHEME', '读取深链失败：' + String(error)); }
     // 从通知栏点进来：记录目标聊天室，等界面就绪后跳转。
     try { this.captureChatNotification(want); }
     catch (error) { Logger.error('CHAT_NOTIFY', '读取冷启动通知参数失败：' + String(error)); }
   }
 
   onNewWant(want: Want): void {
+    try { this.captureDeepLink(want); }
+    catch (error) { Logger.error('SCHEME', '读取热启动深链失败：' + String(error)); }
     try { void this.captureSharedWant(want, 'onNewWant'); }
     catch (error) { Logger.error('SCHEME', '处理新分享链接失败：' + String(error)); }
     try { this.captureChatNotification(want); }

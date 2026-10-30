@@ -13,6 +13,10 @@ import { SearchSources } from '../common/SearchSources';
 import { SymbolIcons } from '../common/SymbolIcons';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassIconButton, PageHeader, PrimaryButton } from '../common/UiWidgets';
+import { ChatArchive } from '../common/ChatArchive';
+import { AccountApi } from '../common/AccountApi';
+import { CommunityApi } from '../common/CommunityApi';
+import { SocialStore } from '../common/SocialStore';
 
 // 日志列表使用懒加载数据源，避免长日志一次性创建全部行组件。
 class LogLineDataSource implements IDataSource {
@@ -473,6 +477,36 @@ export struct SettingPage {
     } catch (error) {
       Logger.error('SETTING', String(error));
       this.showOperationError('清空日志失败：' + String(error));
+    }
+  }
+
+  /** 导出全部聊天记录（文件选择器保存 JSON）。 */
+  private async exportChatArchive(): Promise<void> {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const rooms: string[] = [];
+      for (const room of SocialStore.roomsList()) { rooms.push(room.name); }
+      const peers: string[] = [];
+      const session = await CommunityApi.readSession();
+      if (session.valid()) {
+        const friends = await AccountApi.mutualFriends(session.user, session.pass);
+        for (const friend of friends) { peers.push(friend.user); }
+      }
+      const path: string = await ChatArchive.exportAll(context, rooms, peers);
+      Logger.info('SETTING', path.length > 0 ? '聊天记录导出成功：' + path : '用户取消导出');
+    } catch (error) {
+      Logger.error('SETTING', '导出聊天记录失败：' + String(error));
+    }
+  }
+
+  /** 导入聊天记录 JSON。 */
+  private async importChatArchive(): Promise<void> {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const count: number = await ChatArchive.importFrom(context);
+      Logger.info('SETTING', '聊天记录导入完成，会话数=' + String(count));
+    } catch (error) {
+      Logger.error('SETTING', '导入聊天记录失败：' + String(error));
     }
   }
 
@@ -1438,6 +1472,19 @@ export struct SettingPage {
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
         .padding({ top: '12vp' })
+      this.rowDivider()
+      Row({ space: '8vp' }) {
+        GhostButton({ label: '导出聊天记录', compact: true, onTap: (): void => { void this.exportChatArchive(); } })
+        GhostButton({ label: '导入聊天记录', compact: true, onTap: (): void => { void this.importChatArchive(); } })
+      }
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween)
+        .padding({ top: '12vp' })
+      Text('聊天记录会保存到本地；导出为 JSON（全部群聊 + 好友），导入时自动合并去重。')
+        .fontSize(Ui.fs('11vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
       Text('日志等级：DEBUG 调试 · INFO 普通 · WARN 警告 · ERROR 错误')
         .fontSize(Ui.fs('11.5vp', this.fontScale))
         .fontColor(Ui.inkFaint(this.darkTheme))

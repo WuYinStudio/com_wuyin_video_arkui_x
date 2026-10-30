@@ -1177,34 +1177,54 @@ export struct MyPage {
   /** 数据摘要：一条玻璃底的三段统计，与用户卡同属"个人数据"分组。 */
   @Builder
   private summaryRow() {
-    Row() {
-      this.summaryCell(String(this.statPosts), '帖子', (): void => { this.openForumPage(); });
-      Column()
-        .width('1vp')
-        .height('26vp')
-        .backgroundColor(Ui.divider(this.darkTheme))
-      this.summaryCell(String(this.statCoins), '金币', (): void => { this.openAccountCenter(); });
-      Column()
-        .width('1vp')
-        .height('26vp')
-        .backgroundColor(Ui.divider(this.darkTheme))
-      this.summaryCell(this.statGradeLabel(), '等级', (): void => { this.openTitleRank(); });
-      Column()
-        .width('1vp')
-        .height('26vp')
-        .backgroundColor(Ui.divider(this.darkTheme))
-      this.summaryCell(String(this.statFollows), '关注', (): void => { this.openFollowList(); });
-      Column()
-        .width('1vp')
-        .height('26vp')
-        .backgroundColor(Ui.divider(this.darkTheme))
-      this.summaryCell(String(this.statFans), '粉丝', (): void => { this.openFollowList(); });
+    if (this.tablet()) {
+      Row() {
+        this.summaryCell(String(this.statPosts), '帖子', (): void => { this.openForumPage(); });
+        this.cellDivider()
+        this.summaryCell(String(this.statCoins), '金币', (): void => { this.openAccountCenter(); });
+        this.cellDivider()
+        this.summaryCell(this.statGradeLabel(), '等级', (): void => { this.openTitleRank(); });
+        this.cellDivider()
+        this.summaryCell(String(this.statFollows), '关注', (): void => { this.openFollowList(); });
+        this.cellDivider()
+        this.summaryCell(String(this.statFans), '粉丝', (): void => { this.openFollowList(); });
+      }
+        .width('100%')
+        .padding({ top: '12vp', bottom: '12vp' })
+        .borderRadius(Ui.R_LG)
+        .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+        .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
+    } else {
+      Column({ space: '10vp' }) {
+        Row() {
+          this.summaryCell(String(this.statPosts), '帖子', (): void => { this.openForumPage(); });
+          this.cellDivider()
+          this.summaryCell(String(this.statCoins), '金币', (): void => { this.openAccountCenter(); });
+          this.cellDivider()
+          this.summaryCell(this.statGradeLabel(), '等级', (): void => { this.openTitleRank(); });
+        }
+          .width('100%')
+        Row() {
+          this.summaryCell(String(this.statFollows), '关注', (): void => { this.openFollowList(); });
+          this.cellDivider()
+          this.summaryCell(String(this.statFans), '粉丝', (): void => { this.openFollowList(); });
+        }
+          .width('100%')
+      }
+        .width('100%')
+        .padding({ top: '12vp', bottom: '12vp' })
+        .borderRadius(Ui.R_LG)
+        .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+        .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
     }
-      .width('100%')
-      .padding({ top: '12vp', bottom: '12vp' })
-      .borderRadius(Ui.R_LG)
-      .backgroundColor(Ui.glassTintSoft(this.darkTheme))
-      .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
+  }
+
+  @Builder
+  private cellDivider() {
+    Column()
+      .width('1vp')
+      .height('26vp')
+      .backgroundColor(Ui.divider(this.darkTheme))
   }
 
   @Builder

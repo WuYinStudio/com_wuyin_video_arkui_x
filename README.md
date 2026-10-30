@@ -118,6 +118,8 @@ python scripts/make_ios_appicons.py      # 从 AppScope 图标重建 iOS AppIcon
 
 ## 文档
 
+- **[docs/PORT_COMPARISON_2026-10-30.md](docs/PORT_COMPARISON_2026-10-30.md)** — 第四步：与鸿蒙 v5.1.0 的逐文件对比（已存在 / 有差异 / 缺失三张清单）、本轮 8 组新功能的移植落点与图标层待定说明。
+- **[docs/IOS_NOTES.md](docs/IOS_NOTES.md)** — iOS 运行期问题记录：协议页「同意」报错的存储兜底修复与自测步骤。
 - **[docs/ANDROID_APK.md](docs/ANDROID_APK.md)** — 第三步：跨平台 API 门禁的 26 类改造清单、APK 打包命令、模拟器安装启动验证记录、运行期问题（缺插件 `.so`）的定位与修复。
 - **[docs/PORT_TO_SKELETON.md](docs/PORT_TO_SKELETON.md)** — 第二步：移植到空壳框架的实施记录，三处让构建失败的存量配置错误、Android/iOS 壳改造明细。
 - **[docs/MIGRATION_TO_ARKUIX_STEP1.md](docs/MIGRATION_TO_ARKUIX_STEP1.md)** — 第一步（HarmonyOS → ArkUI-X 手工搭工程）的改造历史，含平台适配层说明与行为变化。

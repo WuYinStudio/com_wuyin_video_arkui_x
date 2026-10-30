@@ -30,6 +30,17 @@
 				<string>wuyin</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- QQ/TG 富文本卡片分享的深链：wuyinvideo://play?… / post / live / joinSession -->
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.wuyin.video.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>wuyinvideo</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>

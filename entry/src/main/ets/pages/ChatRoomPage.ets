@@ -24,6 +24,8 @@ import { SymbolIcons } from '../common/SymbolIcons';
 import { UserTitles } from '../common/UserTitles';
 import { AuroraBackdrop, EmptyState, GhostButton, GlassChip, PrimaryButton } from '../common/UiWidgets';
 import { ChatNoticeBanner } from '../components/ChatNoticeBanner';
+import { ArkCard, isArkCard, parseArkCard, schemeHost, schemeValue } from '../common/ArkCard';
+import { ChatArchive } from '../common/ChatArchive';
 
 class ChatRoomParams {
   room: string = '';
@@ -150,6 +152,9 @@ struct ChatRoomPage {
     setTimeout(() => { this.ensurePortraitAll(); }, 900);
     setInterval(() => { this.ensurePortraitAll(); }, 15000);
     this.alive = true;
+    // 聊天记录本地归档：懒初始化，保证 save() 真正落盘（设置页的导入导出复用同一份存储）。
+    ChatArchive.init(this.getUIContext().getHostContext() as common.UIAbilityContext)
+      .catch((error: Error) => { Logger.warn('CHAT_ROOM', '初始化聊天归档失败：' + String(error)); });
     try {
       const params = router.getParams() as ChatRoomParams | undefined;
       if (params && typeof params.room === 'string') {
@@ -365,7 +370,9 @@ struct ChatRoomPage {
         list.push(message);
       }
       this.messages = list;
+      void ChatArchive.save('room', this.room, list);
       this.lastId = list.length;
+      void ChatArchive.save('peer', this.peer, list);
       Logger.info('CHAT_ROOM', '私聊记录加载完成，条数=' + String(list.length));
     } catch (error) {
       Logger.warn('CHAT_ROOM', '加载私聊记录失败：' + String(error));
@@ -782,6 +789,13 @@ struct ChatRoomPage {
   }
 
   /** 点头衔：打开全部头衔/等级排行，并带上当前等级高亮。 */
+  /** 右上角排行榜入口。 */
+  private openRankPage(): void {
+    router.pushUrl({ url: 'pages/RankPage' }).catch((error: Error) => {
+      Logger.warn('CHAT_ROOM', '打开排行榜失败：' + String(error));
+    });
+  }
+
   private openTitleRank(grade: string, account: string): void {
     try {
       const level: number = UserTitles.levelOf(grade, account);
@@ -1038,6 +1052,79 @@ struct ChatRoomPage {
     this.showToast(card.title.length > 0 ? card.title : '卡片消息');
   }
 
+  /** ark 卡片 → 聊天室卡片类型。 */
+  private arkKind(content: string): string {
+    const card: ArkCard | undefined = parseArkCard(content);
+    if (card === undefined) { return 'link'; }
+    const host: string = schemeHost(card.scheme);
+    if (host === 'audio') { return 'audio'; }
+    if (host === 'play') { return 'video'; }
+    if (host === 'download') { return 'file'; }
+    if (host === 'post' || host === 'notice') { return 'link'; }
+    return card.serviceId === '2' ? 'audio' : 'link';
+  }
+
+  private arkField(content: string, field: string): string {
+    const card: ArkCard | undefined = parseArkCard(content);
+    if (card === undefined) { return ''; }
+    if (field === 'title') { return card.title; }
+    if (field === 'desc') { return this.cleanCardDesc(card.desc); }
+    if (field === 'source') { return card.source; }
+    if (field === 'scheme') { return card.scheme; }
+    if (field === 'cover') { return card.cover; }
+    return '';
+  }
+
+  /** 点 ark 卡片：按 scheme host 分流。 */
+  private openArkCard(content: string): void {
+    const card: ArkCard | undefined = parseArkCard(content);
+    if (card === undefined) { return; }
+    const scheme: string = card.scheme;
+    const host: string = schemeHost(scheme);
+    Logger.info('CHAT_ROOM', 'ark 卡片点击：host=' + host + '，scheme=' + scheme);
+    if (host === 'audio') {
+      const audioId: string = schemeValue(scheme, 'audioId');
+      const title: string = schemeValue(scheme, 'title');
+      this.showToast('音频：' + (title.length > 0 ? title : audioId));
+      return;
+    }
+    if (host === 'play' || host === 'joinSession') {
+      const vodId: string = schemeValue(scheme, 'vodId');
+      const episode: string = schemeValue(scheme, 'episodeIndex');
+      const wzlj: string = schemeValue(scheme, 'wzlj');
+      const title: string = schemeValue(scheme, 'title');
+      const cover: string = schemeValue(scheme, 'cover');
+      if (vodId.length === 0) {
+        this.showToast('卡片缺少影片信息');
+        return;
+      }
+      if (host === 'joinSession') {
+        this.showToast('协播请从邀请消息进入');
+      }
+      const params: Record<string, string> = {
+        'vodId': vodId, 'episodeIndex': episode, 'wzlj': wzlj,
+        'tilie': title, 'yhm': title, 'feng': cover
+      };
+      void router.pushUrl({ url: 'pages/PlayerPage', params: params }).catch((error: Error) => {
+        Logger.warn('CHAT_ROOM', '打开播放器失败：' + String(error));
+      });
+      return;
+    }
+    if (host === 'post') {
+      const postId: string = schemeValue(scheme, 'postId');
+      const params: Record<string, string> = { 'postId': postId };
+      void router.pushUrl({ url: 'pages/ForumDetailPage', params: params }).catch((error: Error) => {
+        Logger.warn('CHAT_ROOM', '打开帖子失败：' + String(error));
+      });
+      return;
+    }
+    if (host === 'live') {
+      this.showToast('直播：' + schemeValue(scheme, 'liveId'));
+      return;
+    }
+    this.showToast(card.title.length > 0 ? card.title : '卡片');
+  }
+
   /** 收起输入法（点 ＋ 展开更多功能时用）。 */
   private hideKeyboard(): void {
     try {
@@ -1048,6 +1135,22 @@ struct ChatRoomPage {
     } catch (error) {
       Logger.warn('CHAT_ROOM', '收起输入法异常：' + String(error));
     }
+  }
+
+  /** 粗略在线判断：最近 5 分钟内有发言视为在线。 */
+  private isOnline(name: string): boolean {
+    try {
+      const account: string = name.trim();
+      for (let index: number = this.messages.length - 1; index >= 0; index--) {
+        const message: ChatMessage = this.messages[index];
+        if (message.user !== account && message.name !== account) { continue; }
+        const minutes: number = this.minutesOf(message.time);
+        return minutes >= 0 && minutes <= 5;
+      }
+    } catch (error) {
+      Logger.warn('CHAT_ROOM', '判断在线状态失败：' + String(error));
+    }
+    return false;
   }
 
   private initial(name: string): string {
@@ -1225,6 +1328,15 @@ struct ChatRoomPage {
       }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
+      // 排行榜入口（群聊与私聊都可看）
+      SymbolGlyph(SymbolIcons.trophy())
+        .fontSize(Ui.fs('18vp', this.fontScale))
+        .fontColor([Ui.ink(this.darkTheme)])
+        .width('36vp')
+        .height('36vp')
+        .borderRadius('18vp')
+        .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+        .onClick(() => { this.openRankPage(); })
       if (!this.privateMode) {
         Text('⋮')
           .fontSize(Ui.fs('24vp', this.fontScale))
@@ -1269,7 +1381,7 @@ struct ChatRoomPage {
       }
       Row({ space: '7vp' }) {
         if (!message.mine(this.session.user)) {
-          Stack({ alignContent: Alignment.Center }) {
+          Stack({ alignContent: Alignment.BottomEnd }) {
             Column()
               .width('32vp')
               .height('32vp')
@@ -1279,6 +1391,15 @@ struct ChatRoomPage {
               .fontSize(Ui.fs('13vp', this.fontScale))
               .fontWeight(FontWeight.Bold)
               .fontColor(Ui.accentStrong(this.darkTheme))
+            // 在线状态小绿点（最近 5 分钟有发言）
+            if (this.isOnline(message.user.length > 0 ? message.user : message.name)) {
+              Column()
+                .width('8vp')
+                .height('8vp')
+                .borderRadius('4vp')
+                .backgroundColor(Ui.success(this.darkTheme))
+                .border({ width: 1, color: Ui.pageBg(this.darkTheme) })
+            }
             // 账号真实头像：http 取字节 → PixelMap 显示，取不到就保持首字。
             if (this.portraits.get(message.user) !== undefined) {
               Image(this.portraits.get(message.user))
@@ -1595,7 +1716,28 @@ struct ChatRoomPage {
   @Builder
   private bubbleContent(message: ChatMessage) {
     // XML 卡片消息（QQ 风格）：内容以 <card 开头时走卡片渲染。
-    if (this.isXmlCard(message.content)) {
+    if (isArkCard(message.content)) {
+      ChatCardMessage({
+        kind: this.arkKind(message.content),
+        title: this.arkField(message.content, 'title'),
+        desc: this.arkField(message.content, 'desc'),
+        source: this.arkField(message.content, 'source'),
+        url: this.arkField(message.content, 'scheme'),
+        button: '打开',
+        thumb: this.arkField(message.content, 'cover'),
+        poster: this.arkField(message.content, 'cover'),
+        fileSize: '',
+        amount: '',
+        count: '',
+        blessing: '',
+        address: '',
+        playing: false,
+        positionMs: 0,
+        durationMs: 0,
+        onTap: (): void => { this.openArkCard(message.content); },
+        onSeekPercent: (_percent: number): void => {}
+      })
+    } else if (this.isXmlCard(message.content)) {
       ChatCardMessage({
         kind: this.xmlCardOf(message.content).kind,
         title: this.xmlCardOf(message.content).title,
@@ -2303,11 +2445,27 @@ struct ChatRoomPage {
           List() {
             ForEach(this.members, (name: string) => {
               ListItem() {
-                Text(name)
-                  .fontSize(Ui.fs('14vp', this.fontScale))
-                  .fontColor(Ui.ink(this.darkTheme))
+                Row({ space: '8vp' }) {
+                  Text(name)
+                    .fontSize(Ui.fs('14vp', this.fontScale))
+                    .fontColor(Ui.ink(this.darkTheme))
+                    .maxLines(1)
+                    .layoutWeight(1)
+                  // 右侧在线/离线状态
+                  Row({ space: '4vp' }) {
+                    Column()
+                      .width('6vp')
+                      .height('6vp')
+                      .borderRadius('3vp')
+                      .backgroundColor(this.isOnline(name) ? Ui.success(this.darkTheme) : Ui.inkFaint(this.darkTheme))
+                    Text(this.isOnline(name) ? '在线' : '离线')
+                      .fontSize(Ui.fs('10vp', this.fontScale))
+                      .fontColor(this.isOnline(name) ? Ui.success(this.darkTheme) : Ui.inkFaint(this.darkTheme))
+                  }
+                }
                   .width('100%')
                   .height('40vp')
+                  .alignItems(VerticalAlign.Center)
                   .onClick(() => { this.insertMention(name); })
               }
             }, (name: string) => 'member-' + name)
@@ -2394,5 +2552,18 @@ struct ChatRoomPage {
           Logger.warn('CHAT_ROOM', '更新聊天页宽度失败：' + String(error));
         }
       })
+  }
+
+  /** 卡片描述里去掉图片/链接行，避免把 URL 显示成正文。 */
+  private cleanCardDesc(desc: string): string {
+    const lines: string[] = (desc || '').split('\n');
+    const kept: string[] = [];
+    for (const line of lines) {
+      const text: string = line.trim();
+      if (text.length === 0) { continue; }
+      if (text.indexOf('http://') === 0 || text.indexOf('https://') === 0) { continue; }
+      kept.push(text);
+    }
+    return kept.join('\n');
   }
 }

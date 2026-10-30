@@ -20,6 +20,7 @@
     "pages/UserAgreementPage",
     "pages/AvatarUploadPage",
     "pages/PlatformSnifferPage",
-    "pages/FollowListPage"
+    "pages/FollowListPage",
+    "pages/RankPage"
   ]
 }

@@ -18,9 +18,16 @@ on:
         options:
           - Release
           - Debug
+  # 推送到 main 自动出包：产物同时作为 Release 资产，公开仓库可直接下载（artifacts 需要登录）。
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
 
 permissions:
-  contents: read
+  contents: write
   checks: write
 
 jobs:
@@ -80,7 +87,7 @@ jobs:
 
       - name: Build unsigned IPA
         env:
-          IOS_CONFIGURATION: ${{ inputs.configuration }}
+          IOS_CONFIGURATION: ${{ inputs.configuration || 'Release' }}
         run: |
           set +e
           bash scripts/build_unsigned_ios.sh 2>&1 | tee /tmp/ios-build.log
@@ -111,6 +118,19 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: wuyin-ios-unsigned-${{ inputs.configuration }}
+          name: wuyin-ios-unsigned-${{ inputs.configuration || 'Release' }}
           path: build/ios-unsigned/app-unsigned.ipa
           if-no-files-found: error
+
+      # artifacts 下载要登录；同时发一个 Release 资产，公开仓库可匿名下载。
+      - name: Publish IPA to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="ios-unsigned-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$tag" build/ios-unsigned/app-unsigned.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "iOS unsigned ${GITHUB_SHA::7}" \
+            --notes "Automated unsigned iOS build. Commit ${GITHUB_SHA}. This IPA is unsigned and must be re-signed before installing on a stock device."
+          echo "release_tag=$tag" >> "$GITHUB_STEP_SUMMARY"

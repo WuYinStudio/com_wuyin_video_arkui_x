@@ -332,4 +332,64 @@ export class AccountApi {
     }
     return list;
   }
+
+  /** 排行榜：admin_rank.php?action=board&type=level|praise|fans|money。 */
+  static async rankList(type: string): Promise<RankEntry[]> {
+    const text: string = await AccountApi.get(AccountApi.url('/admin_rank.php',
+      'action=board&type=' + encodeURIComponent(type)), '排行榜');
+    const list: RankEntry[] = [];
+    try {
+      const parsed: RankResponse = JSON.parse(text) as RankResponse;
+      const rows: RankRow[] = parsed.data !== undefined ? parsed.data : [];
+      for (let index: number = 0; index < rows.length; index++) {
+        const row: RankRow = rows[index];
+        const entry: RankEntry = new RankEntry();
+        entry.user = row.username !== undefined ? String(row.username) : '';
+        const nick: string = row.nickname !== undefined ? String(row.nickname) : '';
+        entry.name = nick.length > 0 && nick !== '未设置' && nick !== 'null' ? nick : entry.user;
+        entry.grade = row.grade !== undefined ? String(row.grade) : '';
+        entry.rank = row.rank !== undefined ? Number(row.rank) : (index + 1);
+        entry.value = row.value !== undefined ? Number(row.value) : 0;
+        entry.money = row.money !== undefined ? Number(row.money) : 0;
+        entry.fans = row.fans !== undefined ? Number(row.fans) : 0;
+        entry.praise = row.praise !== undefined ? Number(row.praise) : 0;
+        entry.exp = row.exp !== undefined ? Number(row.exp) : 0;
+        if (entry.user.length > 0) { list.push(entry); }
+      }
+    } catch (error) {
+      Logger.warn('ACCOUNT_API', '解析排行榜失败：' + String(error));
+    }
+    return list;
+  }
+}
+
+/** 排行榜条目（admin_rank.php）。 */
+export class RankEntry {
+  rank: number = 0;
+  user: string = '';
+  name: string = '';
+  grade: string = '';
+  value: number = 0;
+  money: number = 0;
+  fans: number = 0;
+  praise: number = 0;
+  exp: number = 0;
+}
+
+class RankRow {
+  rank: number = 0;
+  username: string = '';
+  nickname: string = '';
+  grade: string = '';
+  exp: number = 0;
+  praise: number = 0;
+  fans: number = 0;
+  money: number = 0;
+  value: number = 0;
+}
+
+class RankResponse {
+  code: number = 0;
+  msg: string = '';
+  data: RankRow[] = [];
 }
