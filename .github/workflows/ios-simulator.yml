@@ -136,3 +136,17 @@ jobs:
             /tmp/crash.log
             /tmp/sim.png
           if-no-files-found: warn
+
+      - name: Publish diagnostics release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          touch /tmp/crash.log /tmp/sim.png
+          tag="ios-sim-diag-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$tag" /tmp/crash.log /tmp/sim.png \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "iOS simulator diagnostics ${GITHUB_SHA::7}" \
+            --notes "Simulator crash log and screenshot for ${GITHUB_SHA}."
+          echo "diagnostics_release=$tag" >> "$GITHUB_STEP_SUMMARY"
