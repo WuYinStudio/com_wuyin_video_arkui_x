@@ -1,5 +1,4 @@
-import { AVPlaybackState, AVCastController, AVSession, AVSessionController, ConnectionState, DeviceInfo, OutputDeviceInfo, PlaybackState, createAVSession, createController } from '../common/compat/AvSessionCompat';
-import { PlatformInfo } from '../common/compat/PlatformInfo';
+import { avSession } from '../common/PlatformAVSession';
 import { common, Want } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { webSocket } from '@kit.NetworkKit';
@@ -84,7 +83,7 @@ interface SocketCloseInfo { code: number; reason: string; }
 interface ControllerListeners {
   sessionEvent: (event: string, args: Record<string, Object>) => void;
   sessionDestroy: () => void;
-  playbackStateChange: (state: AVPlaybackState) => void;
+  playbackStateChange: (state: avSession.AVPlaybackState) => void;
 }
 export class MediaSessionView {
   active: boolean = false;
@@ -92,8 +91,7 @@ export class MediaSessionView {
   sessionId: string = '';
   localId: string = '';
   hostId: string = '';
-  // Android/iOS 没有系统 AVSession，默认直接进入可用的服务器信令模式。
-  mode: string = PlatformInfo.isHarmonyOS() ? 'lan' : 'server';
+  mode: string = 'lan';
   serverUrl: string = '';
   status: string = '未连接';
   fatalMessage: string = '';
@@ -104,13 +102,13 @@ type SessionListener = (view: MediaSessionView) => void;
 
 export class MediaSessionService {
   private context?: common.UIAbilityContext;
-  private owner?: AVSession;
-  private controller?: AVSessionController;
+  private owner?: avSession.AVSession;
+  private controller?: avSession.AVSessionController;
   private controllerSessionId: string = '';
   private controllerListeners?: ControllerListeners;
-  private castController?: AVCastController;
+  private castController?: avSession.AVCastController;
   private castSessionId: string = '';
-  private castStateListener?: (state: AVPlaybackState) => void;
+  private castStateListener?: (state: avSession.AVPlaybackState) => void;
   private castAttachVersion: number = 0;
   private receiverFailurePending: boolean = false;
   private socket?: webSocket.WebSocket;
@@ -170,34 +168,34 @@ export class MediaSessionService {
       void this.release(); this.notify('协同播放会话已结束');
     } catch (error) { this.failReceiver('处理会话断开失败', error); }
   };
-  private outputCallback = (_state: ConnectionState, info: OutputDeviceInfo): void => {
+  private outputCallback = (_state: avSession.ConnectionState, info: avSession.OutputDeviceInfo): void => {
     try {
       if (!this.owner || this.view.mode !== 'lan') { return; }
-      this.view.castDevices = info.devices.map((device: DeviceInfo): MediaSessionDevice => {
+      this.view.castDevices = info.devices.map((device: avSession.DeviceInfo): MediaSessionDevice => {
         return { deviceId: device.deviceId, deviceName: device.deviceName || '投送设备', lastSeen: Date.now() };
       });
       this.emit(); void this.attachCast();
     } catch (error) { this.failReceiver('刷新系统投送设备失败', error); }
   };
-  private controllerPlaybackCallback = (state: AVPlaybackState): void => {
+  private controllerPlaybackCallback = (state: avSession.AVPlaybackState): void => {
     try {
       if (!this.controller) { return; }
       this.receivePlaybackState(state, this.controllerSessionId);
     } catch (error) { this.failReceiver('处理系统会话时间同步回调失败', error); }
   };
-  private castPlaybackCallback = (state: AVPlaybackState): void => {
+  private castPlaybackCallback = (state: avSession.AVPlaybackState): void => {
     try {
       // AVCastController 由真实 AVSession 提供；不能用邀请 ID 伪造投送控制器。
       if (!this.castController) { return; }
       this.receivePlaybackState(state, this.castSessionId);
     } catch (error) { this.failReceiver('处理 AVCast 时间同步回调失败', error); }
   };
-  private receivePlaybackState(state: AVPlaybackState, sessionId: string): void {
+  private receivePlaybackState(state: avSession.AVPlaybackState, sessionId: string): void {
     try {
       if (!sessionId || sessionId !== this.view.sessionId || this.view.mode !== 'lan' || !this.view.active || this.view.isHost) { return; }
       if (!state || !state.position || !Number.isSafeInteger(state.position.elapsedTime) || state.position.elapsedTime < 0) { return; }
-      if (state.state !== PlaybackState.PLAYBACK_STATE_PLAY &&
-        state.state !== PlaybackState.PLAYBACK_STATE_PAUSE) { return; }
+      if (state.state !== avSession.PlaybackState.PLAYBACK_STATE_PLAY &&
+        state.state !== avSession.PlaybackState.PLAYBACK_STATE_PAUSE) { return; }
       const previous: MediaSessionCommand | undefined = this.latestHostCommand;
       if (!previous || previous.deviceId !== this.view.hostId || !this.validCommand(previous)) { return; }
       // 系统播放状态不含集号，必须与已收到的主控快照属于同一次发布。
@@ -214,7 +212,7 @@ export class MediaSessionService {
         action: 'state', deviceId: this.view.hostId, currentMs: state.position.elapsedTime,
           timestamp: previous.timestamp, episodeIndex: previous.episodeIndex,
           speedIndex: speed >= 0 ? speed : previous.speedIndex,
-          playing: state.state === PlaybackState.PLAYBACK_STATE_PLAY
+          playing: state.state === avSession.PlaybackState.PLAYBACK_STATE_PLAY
       };
       // 只补充同一主控快照的时间校准，不改写协议去重水位及最新集号。
       if (this.queuedCommand && this.queuedCommand.timestamp > command.timestamp) { return; }
@@ -292,7 +290,6 @@ export class MediaSessionService {
   async setMode(mode: string): Promise<void> {
     try {
       if ((mode !== 'lan' && mode !== 'server') || mode === this.view.mode) { return; }
-      if (mode === 'lan' && !PlatformInfo.isHarmonyOS()) { this.notify('当前平台不支持系统协同会话，请使用服务器模式'); return; }
       await this.release(); this.view.mode = mode; this.view.fatalMessage = ''; this.emit();
       Logger.info('MEDIA_SESSION', '已切换同步模式并销毁上一会话资源');
     } catch (error) { this.failure('切换同步模式失败', error); this.notify('切换模式失败，请重试'); }
@@ -322,9 +319,6 @@ export class MediaSessionService {
     try {
       this.notifyDeparture(); await this.releaseResources();
       if (revision !== this.revision) { return; }
-      if (this.view.mode === 'lan' && !PlatformInfo.isHarmonyOS()) {
-        this.notify('当前平台不支持系统协同会话，请使用服务器模式'); return;
-      }
       if (!this.context || !this.sourceId) { throw new Error('当前影片尚未就绪'); }
       const deviceId: string = await this.identity();
       if (revision !== this.revision) { return; }
@@ -333,7 +327,7 @@ export class MediaSessionService {
         this.view.sessionId = 'WY-' + util.generateRandomUUID(true).replace(/-/g, '').slice(0, 12).toUpperCase();
         this.socketRequest = 'create'; await this.connectSocket(revision, 'create', false); return;
       }
-      const created: AVSession = await createAVSession(this.context, '无音影视协同同播', 'video');
+      const created: avSession.AVSession = await avSession.createAVSession(this.context, '无音影视协同同播', 'video');
       if (revision !== this.revision) { await created.destroy(); return; }
       this.owner = created;
       created.on('commonCommand', this.commandCallback); created.on('outputDeviceChange', this.outputCallback);
@@ -371,9 +365,6 @@ export class MediaSessionService {
     }
     const revision: number = ++this.revision;
     try {
-      if (this.view.mode === 'lan' && !PlatformInfo.isHarmonyOS()) {
-        this.notify('当前平台不支持系统协同会话，请使用服务器模式'); return;
-      }
       if (!this.validRoom(sessionId.trim())) { throw new Error('会话 ID 无效'); }
       this.notifyDeparture(); await this.releaseResources();
       if (revision !== this.revision) { return; }
@@ -388,7 +379,7 @@ export class MediaSessionService {
         this.socketRequest = 'join'; await this.connectSocket(revision, 'join', false); return;
       }
       Logger.info('MEDIA_SESSION', '创建邀请对应的系统会话控制器，会话=' + this.view.sessionId);
-      const linked: AVSessionController = await createController(sessionId.trim());
+      const linked: avSession.AVSessionController = await avSession.createController(sessionId.trim());
       if (revision !== this.revision) { await linked.destroy(); return; }
       this.controller = linked; this.controllerSessionId = sessionId.trim(); this.view.status = '等待主控确认';
       // 每次入会绑定实际控制器及版本。旧会话已经排队的销毁/播放事件不能结束新会话。
@@ -405,7 +396,7 @@ export class MediaSessionService {
             this.destroyedCallback();
           } catch (error) { this.failReceiver('处理绑定会话销毁失败', error); }
         },
-          playbackStateChange: (state: AVPlaybackState): void => {
+          playbackStateChange: (state: avSession.AVPlaybackState): void => {
           try {
             if (revision !== this.revision || this.controller !== linked) { return; }
             this.controllerPlaybackCallback(state);
@@ -420,7 +411,7 @@ export class MediaSessionService {
       this.emit();
       Logger.info('MEDIA_SESSION', '已注册会话时间同步、切集及销毁监听，会话=' + this.view.sessionId);
       this.lastReceivedAt = Date.now();
-      await linked.sendCommonCommand('wuyin.session', sessionArgs('payload', JSON.stringify(this.envelope('join'))));
+      await linked.sendCommonCommand('wuyin.session', { payload: JSON.stringify(this.envelope('join')) });
       if (revision === this.revision) { this.startPulse(); }
     } catch (error) {
       this.failure('加入会话失败', error);
@@ -470,7 +461,7 @@ export class MediaSessionService {
   private async relay(envelope: SessionEnvelope): Promise<void> {
     const revision: number = this.revision;
     try {
-      const owner: AVSession | undefined = this.owner;
+      const owner: avSession.AVSession | undefined = this.owner;
       if (!owner || !this.view.active || !envelope || envelope.sessionId !== this.view.sessionId ||
         typeof envelope.deviceId !== 'string' || !/^[A-Za-z0-9-]{12,96}$/.test(envelope.deviceId)) { return; }
       const action: string = envelope.action;
@@ -507,7 +498,7 @@ export class MediaSessionService {
       }
       this.emit();
       if (revision !== this.revision || this.owner !== owner) { return; }
-      await owner.dispatchSessionEvent('wuyin.session', sessionArgs('payload', JSON.stringify(message)));
+      await owner.dispatchSessionEvent('wuyin.session', { payload: JSON.stringify(message) });
       if (this.owner === owner && revision === this.revision && message.command && !this.view.isHost) { this.applyCommand(message.command); }
     } catch (error) { this.failReceiver('转发同播指令失败', error); }
   }
@@ -597,45 +588,45 @@ export class MediaSessionService {
         return;
       }
       const envelope: SessionEnvelope = this.envelope('control'); envelope.command = command;
-      const owner: AVSession | undefined = this.owner;
-      const controller: AVSessionController | undefined = this.controller;
+      const owner: avSession.AVSession | undefined = this.owner;
+      const controller: avSession.AVSessionController | undefined = this.controller;
       if (owner) {
-        await owner.setAVPlaybackState({ state: command.playing ? PlaybackState.PLAYBACK_STATE_PLAY : PlaybackState.PLAYBACK_STATE_PAUSE,
+        await owner.setAVPlaybackState({ state: command.playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
             speed: [0.75, 1, 1.25, 1.75, 2][command.speedIndex], position: { elapsedTime: command.currentMs, updateTime: command.timestamp } });
         if (revision !== this.revision || this.owner !== owner || !this.view.isHost) { return; }
         await this.relay(envelope);
-      } else if (controller) { await controller.sendCommonCommand('wuyin.session', sessionArgs('payload', JSON.stringify(envelope))); }
+      } else if (controller) { await controller.sendCommonCommand('wuyin.session', { payload: JSON.stringify(envelope) }); }
       if (revision === this.revision && this.view.active && this.view.isHost) { await this.publishCast(command, revision); }
     } catch (error) { this.failure('发布同播播放状态失败', error); }
     finally { if (this.publishingRevision === revision) { this.publishingRevision = -1; } }
   }
   private async publishCast(command: MediaSessionCommand, revision: number): Promise<void> {
     try {
-      const cast: AVCastController | undefined = this.castController;
+      const cast: avSession.AVCastController | undefined = this.castController;
       if (!cast || !this.view.isHost || this.castSessionId !== this.view.sessionId) { return; }
-      const state: AVPlaybackState = await cast.getAVPlaybackState();
+      const state: avSession.AVPlaybackState = await cast.getAVPlaybackState();
       if (revision !== this.revision || this.castController !== cast || !this.view.isHost) { return; }
-      const expectedState: PlaybackState = command.playing ? PlaybackState.PLAYBACK_STATE_PLAY : PlaybackState.PLAYBACK_STATE_PAUSE;
-      if (state.state !== expectedState) { await cast.sendCommonCommand(command.playing ? 'play' : 'pause', {}); }
+      const expectedState: avSession.PlaybackState = command.playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE;
+      if (state.state !== expectedState) { await cast.sendControlCommand({ command: command.playing ? 'play' : 'pause' }); }
       if (revision !== this.revision || this.castController !== cast || !this.view.isHost) { return; }
       const targetSpeed: number = [0.75, 1, 1.25, 1.75, 2][command.speedIndex];
-      if (state.speed !== targetSpeed) { await cast.sendCommonCommand('setSpeed', sessionArgs('parameter', targetSpeed)); }
+      if (state.speed !== targetSpeed) { await cast.sendControlCommand({ command: 'setSpeed', parameter: targetSpeed }); }
       if (revision !== this.revision || this.castController !== cast || !this.view.isHost) { return; }
       const target: number = Math.max(0, Math.floor(command.currentMs + (command.playing ? Math.max(0, Date.now() - command.timestamp) * targetSpeed : 0)));
       let actual: number = -1;
       if (state.position && Number.isFinite(state.position.elapsedTime)) {
         actual = state.position.elapsedTime;
-        if (state.state === PlaybackState.PLAYBACK_STATE_PLAY && Number.isFinite(state.position.updateTime) && Math.abs(Date.now() - state.position.updateTime) <= 30000) {
+        if (state.state === avSession.PlaybackState.PLAYBACK_STATE_PLAY && Number.isFinite(state.position.updateTime) && Math.abs(Date.now() - state.position.updateTime) <= 30000) {
           actual += Math.max(0, Date.now() - state.position.updateTime) * (state.speed || 1);
         }
       }
-      if (actual < 0 || Math.abs(actual - target) >= this.castSeekToleranceMs) { await cast.sendCommonCommand('seek', sessionArgs('parameter', target)); }
+      if (actual < 0 || Math.abs(actual - target) >= this.castSeekToleranceMs) { await cast.sendControlCommand({ command: 'seek', parameter: target }); }
     } catch (error) { this.failReceiver('同步系统投送状态失败', error); }
   }
   private detachCast(): void {
     ++this.castAttachVersion;
-    const cast: AVCastController | undefined = this.castController;
-    const listener: ((state: AVPlaybackState) => void) | undefined = this.castStateListener;
+    const cast: avSession.AVCastController | undefined = this.castController;
+    const listener: ((state: avSession.AVPlaybackState) => void) | undefined = this.castStateListener;
     this.castController = undefined; this.castSessionId = ''; this.castStateListener = undefined;
     if (!cast || !listener) { return; }
     try { cast.off('playbackStateChange', listener); }
@@ -646,13 +637,13 @@ export class MediaSessionService {
     const attachVersion: number = ++this.castAttachVersion;
     try {
       if (!this.owner || this.view.castDevices.length === 0) { this.detachCast(); return; }
-      const owner: AVSession = this.owner;
-      const cast: AVCastController = await owner.getAVCastController();
+      const owner: avSession.AVSession = this.owner;
+      const cast: avSession.AVCastController = await owner.getAVCastController();
       if (revision !== this.revision || attachVersion !== this.castAttachVersion || this.owner !== owner ||
         !this.view.active || this.view.castDevices.length === 0) { return; }
       if (this.castController === cast) { return; }
       this.detachCast(); this.castController = cast; this.castSessionId = this.view.sessionId;
-      const listener: (state: AVPlaybackState) => void = (state: AVPlaybackState): void => {
+      const listener: (state: avSession.AVPlaybackState) => void = (state: avSession.AVPlaybackState): void => {
         try {
           if (revision !== this.revision || this.owner !== owner || this.castController !== cast) { return; }
           this.castPlaybackCallback(state);
@@ -879,7 +870,7 @@ export class MediaSessionService {
       }
       const message: SessionEnvelope = this.envelope(action, targetId);
       if (this.owner) { await this.relay(message); }
-      else if (this.controller) { await this.controller.sendCommonCommand('wuyin.session', sessionArgs('payload', JSON.stringify(message))); }
+      else if (this.controller) { await this.controller.sendCommonCommand('wuyin.session', { payload: JSON.stringify(message) }); }
     } catch (error) { this.failure('管理同播设备失败', error); this.notify('设备管理失败，请重试'); }
   }
   private startPulse(): void {
@@ -902,7 +893,7 @@ export class MediaSessionService {
         await this.relay(this.envelope('pulse'));
       } else if (this.controller) {
         if (this.view.active && Date.now() - this.lastReceivedAt > 8000) { await this.release(); this.notify('协同播放会话已结束'); return; }
-        await this.controller.sendCommonCommand('wuyin.session', sessionArgs('payload', JSON.stringify(this.envelope(this.view.active ? 'pulse' : 'join'))));
+        await this.controller.sendCommonCommand('wuyin.session', { payload: JSON.stringify(this.envelope(this.view.active ? 'pulse' : 'join')) });
       }
       if (revision === this.revision && this.view.isHost) { await this.publish(); }
     } catch (error) {
@@ -918,21 +909,21 @@ export class MediaSessionService {
   }
   private notifyDeparture(): void {
     try {
-      const controller: AVSessionController | undefined = this.controller;
+      const controller: avSession.AVSessionController | undefined = this.controller;
       const socket: webSocket.WebSocket | undefined = this.socket;
       if (this.view.active && socket && this.socketReady) {
         void socket.send(JSON.stringify({ version: 1, type: 'leave', roomId: this.view.sessionId, deviceId: this.view.localId } as ServerPacket))
           .catch((error: BusinessError): void => { this.failure('通知服务器退出失败', error); });
       } else if (controller && this.view.active) {
-        void controller.sendCommonCommand('wuyin.session', sessionArgs('payload', JSON.stringify(this.envelope('leave'))))
+        void controller.sendCommonCommand('wuyin.session', { payload: JSON.stringify(this.envelope('leave')) })
           .catch((error: BusinessError): void => { this.failure('通知退出系统会话失败', error); });
       }
     } catch (error) { this.failure('发送退出通知失败', error); }
   }
   private async releaseResources(): Promise<void> {
-    const controller: AVSessionController | undefined = this.controller;
+    const controller: avSession.AVSessionController | undefined = this.controller;
     const callbacks: ControllerListeners | undefined = this.controllerListeners;
-    const owner: AVSession | undefined = this.owner;
+    const owner: avSession.AVSession | undefined = this.owner;
     this.detachCast(); this.controller = undefined; this.controllerSessionId = ''; this.controllerListeners = undefined; this.owner = undefined;
     const previous: MediaSessionView = this.view; this.view = new MediaSessionView();
     this.view.localId = previous.localId; this.view.mode = previous.mode; this.view.serverUrl = previous.serverUrl;
@@ -979,16 +970,6 @@ class MediaSessionSelectItemModifier implements ContentModifier<MenuItemConfigur
   applyContent(): WrappedBuilder<[MenuItemConfiguration]> {
     return wrapBuilder(SelectItem);
   }
-}
-
-/**
- * ArkTS 不允许把无类型对象字面量传给 Record<string, Object> 参数，
- * 统一在这里构造 AVSessionController / AVCastController 的命令参数。
- */
-function sessionArgs(key: string, value: Object): Record<string, Object> {
-  const args: Record<string, Object> = {};
-  args[key] = value;
-  return args;
 }
 
 @Component
@@ -1248,8 +1229,8 @@ export struct MediaSessionDialog {
               .accessibilityText('关闭协同同播窗口，保留当前会话')
               .onClick((): void => { this.close(); });
           }.width('100%').alignItems(VerticalAlign.Center);
-          Select([{ value: '局域网 AVSession / AVCast（仅 HarmonyOS）' }, { value: '自建 WebSocket 信令服务器' }])
-            .selected(this.session.mode === 'server' ? 1 : 0).value(this.session.mode === 'server' ? '自建 WebSocket 信令服务器' : '局域网 AVSession / AVCast（仅 HarmonyOS）')
+          Select([{ value: '局域网 AVSession / AVCast' }, { value: '自建 WebSocket 信令服务器' }])
+            .selected(this.session.mode === 'server' ? 1 : 0).value(this.session.mode === 'server' ? '自建 WebSocket 信令服务器' : '局域网 AVSession / AVCast')
             .font({ size: '13vp' }).fontColor(Ui.ink(this.darkTheme))
             .backgroundColor(Ui.glassTintSoft(this.darkTheme)).borderRadius('18vp')
             .border({ width: 1, color: Ui.glassRingSoft(this.darkTheme) })
@@ -1388,7 +1369,7 @@ export struct MediaSessionDialog {
           }.width('100%').alignItems(VerticalAlign.Center);
           Text(this.session.mode === 'server' ?
             '需要已部署并实现 JSON v1 房间协议的信令服务。支持 wss；服务端须校验主控权限。断线采用 1、2、4、8、16、30 秒退避，最多重试 6 次。' :
-            '局域网模式仅连接系统实际可访问的 AVSession，仅在 HarmonyOS 上可用；Android/iOS 请使用服务器模式。AVCast 设备由系统投送能力提供。')
+            '局域网模式仅连接系统实际可访问的 AVSession；房间号不能代替系统会话发现、授权或软总线组网。AVCast 设备由系统投送能力提供。')
             .fontSize(Ui.fs('11vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme)).width('100%');
           Text('华为分享邀请继续使用原有系统分享接收链路；局域网邀请为独立备选通道。打开弹窗仅初始化设备管理，点击刷新才扫描，关闭窗口只停止设备扫描并解除发现回调，不清除当前协播会话。')
             .fontSize(Ui.fs('11vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme)).width('100%');

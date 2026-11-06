@@ -2,7 +2,7 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { media } from '@kit.MediaKit';
 import { http } from '@kit.NetworkKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { AccountApi, ChatEntry } from '../common/AccountApi';
 import { buildXmlCard, ChatCardMessage, parseXmlCard, XmlCard } from '../components/ChatCardMessage';
@@ -15,17 +15,23 @@ import { ChatMessage, CommunityApi, CommunitySession } from '../common/Community
 import { ChatService } from '../common/ChatService';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
-import { inputMethod } from '../common/compat/InputMethodCompat';
 import { ChatCard, MediaCodec } from '../common/MediaCodec';
 import { ForumMedia } from '../common/ForumCodec';
 import { SocialStore } from '../common/SocialStore';
-import { Ui } from '../common/Ui';
+import { Ui, UiMotion } from '../common/Ui';
+import { PlatformLinks } from '../common/PlatformLinks';
 import { SymbolIcons } from '../common/SymbolIcons';
 import { UserTitles } from '../common/UserTitles';
 import { AuroraBackdrop, EmptyState, GhostButton, GlassChip, PrimaryButton } from '../common/UiWidgets';
 import { ChatNoticeBanner } from '../components/ChatNoticeBanner';
 import { ArkCard, isArkCard, parseArkCard, schemeHost, schemeValue } from '../common/ArkCard';
 import { ChatArchive } from '../common/ChatArchive';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { camera, cameraPicker } from '../common/PlatformCameraPicker';
+import { ImageHostResult, ImageHostService } from '../common/ImageHostService';
+import { EmojiStore, StickerItem } from '../common/EmojiStore';
+import { VoiceClip, VoiceRecorder } from '../common/VoiceRecorder';
+import { VoiceStore } from '../common/VoiceStore';
 
 class ChatRoomParams {
   room: string = '';
@@ -47,6 +53,17 @@ class UserRouteOptions {
 
   constructor(account: string) {
     this.params = new UserRouteParams(account);
+  }
+}
+
+/** 正文片段：普通文字 / @昵称，着色时分开渲染（@昵称 跟随主题强调色）。 */
+class MentionPart {
+  text: string = '';
+  mention: boolean = false;
+
+  constructor(text: string, mention: boolean) {
+    this.text = text;
+    this.mention = mention;
   }
 }
 
@@ -93,8 +110,12 @@ struct ChatRoomPage {
   // 富媒体输入：图片 / 视频 / 音乐 / 附件，先攒在 draftMedia 里，随文字一起发成一条 rich 消息。
   @State private mediaKind: string = 'image';
   @State private urlValue: string = '';
+  // 正在把选中的图片上传到图床（防重复点击，同时驱动按钮文案）。
+  @State private uploadingImage: boolean = false;
   @State private mediaTitle: string = '';
   @State private mediaPoster: string = '';
+  /** 视频时长（秒）：上传成功后从图床响应里带回来，卡片角标用。 */
+  @State private mediaDuration: number = 0;
   @State private draftMedia: ForumMedia[] = [];
   // 点了哪条音乐消息：点击后就地展开一个音频播放器（QQ 式：点卡片即播）。
   @State private playingAudio: string = '';
@@ -136,10 +157,26 @@ struct ChatRoomPage {
   private onlineTimer: number = -1;
   private alive: boolean = false;
   private readonly listScroller: Scroller = new Scroller();
+  // 输入框控制器：长按头像插入「@昵称 」后把光标放到草稿末尾。
+  private readonly composerController: TextInputController = new TextInputController();
   private readonly emojisHot: string[] = ['😀', '😂', '😍', '🤔', '😭', '😡', '👍', '🎉', '❤️', '🔥', '🌹', '👏'];
   private readonly emojisSelect: string[] = ['😎', '🤗', '😴', '😅', '🙏', '💪', '🍉', '🍺', '🎬', '🎮', '⭐', '💎'];
+  // 我的表情（自定义表情包）：本地直链列表，点击即发送，长按删除。
+  @State private stickers: StickerItem[] = [];
+  @State private stickerBusy: boolean = false;
+  // 语音消息：按住录音 → 本地 m4a → 上传图床 → 直链封装成音频消息。
+  @State private showVoicePanel: boolean = false;
+  @State private recording: boolean = false;
+  @State private recordSec: number = 0;
+  @State private voiceBusy: boolean = false;
+  // 录音时手指上滑超过阈值 → 标记「松开取消」。
+  @State private voiceSlideCancel: boolean = false;
+  private recordStartY: number = 0;
+  private voiceRecorder: VoiceRecorder = new VoiceRecorder();
+  private recordTimerId: number = -1;
 
   aboutToAppear(): void {
+    this.stickers = EmojiStore.list();
     try {
       const incoming: Record<string, string> | undefined = router.getParams() as Record<string, string> | undefined;
       if (incoming !== undefined && incoming['target'] !== undefined && String(incoming['target']).length > 0) {
@@ -152,9 +189,6 @@ struct ChatRoomPage {
     setTimeout(() => { this.ensurePortraitAll(); }, 900);
     setInterval(() => { this.ensurePortraitAll(); }, 15000);
     this.alive = true;
-    // 聊天记录本地归档：懒初始化，保证 save() 真正落盘（设置页的导入导出复用同一份存储）。
-    ChatArchive.init(this.getUIContext().getHostContext() as common.UIAbilityContext)
-      .catch((error: Error) => { Logger.warn('CHAT_ROOM', '初始化聊天归档失败：' + String(error)); });
     try {
       const params = router.getParams() as ChatRoomParams | undefined;
       if (params && typeof params.room === 'string') {
@@ -177,6 +211,10 @@ struct ChatRoomPage {
     this.alive = false;
     this.closeAudioFd();
     void this.stopAudio();
+    // 离开页面时丢弃未完成的录音，避免录音器一直占用麦克风。
+    this.clearRecordTimer();
+    void this.voiceRecorder.cancel();
+    this.recording = false;
     this.stopTimers();
     this.releaseActiveRoom();
   }
@@ -502,7 +540,14 @@ struct ChatRoomPage {
   }
 
   private async sendCard(card: ChatCard, replace?: ChatMessage): Promise<void> {
-    if (!this.loggedIn || this.sending) {
+    if (!this.loggedIn) {
+      this.errorText = '登录后才能发送消息';
+      router.pushUrl({ url: 'pages/LoginPage' }).catch((error: Error) => {
+        Logger.error('CHAT_ROOM', '打开登录页失败：' + String(error));
+      });
+      return;
+    }
+    if (this.sending) {
       return;
     }
     this.sending = true;
@@ -600,6 +645,13 @@ struct ChatRoomPage {
   }
 
   private async sendText(): Promise<void> {
+    if (!this.loggedIn) {
+      this.errorText = '登录后才能发送消息';
+      router.pushUrl({ url: 'pages/LoginPage' }).catch((error: Error) => {
+        Logger.error('CHAT_ROOM', '打开登录页失败：' + String(error));
+      });
+      return;
+    }
     if (this.peer.length > 0) {
       await this.sendPrivateChat();
       return;
@@ -618,8 +670,8 @@ struct ChatRoomPage {
     this.lastSentText = text;
     this.lastSentAt = now;
     this.draft = '';
-    this.showEmoji = false;
-    this.showPlus = false;
+    // 发送后收起面板，走同一套收起动效。
+    this.closeFunctionPanels();
     const card: ChatCard = new ChatCard();
     // 引用的优先级最高；其次带媒体就是 rich（富文本），只发文字仍是 text。
     card.kind = this.replyVisible ? 'quote' : (hasMedia ? 'rich' : 'text');
@@ -1044,14 +1096,6 @@ struct ChatRoomPage {
     }
   }
 
-  private openXmlCard(card: XmlCard): void {
-    if (card.url.length > 0) {
-      this.showToast('卡片链接：' + card.url);
-      return;
-    }
-    this.showToast(card.title.length > 0 ? card.title : '卡片消息');
-  }
-
   /** ark 卡片 → 聊天室卡片类型。 */
   private arkKind(content: string): string {
     const card: ArkCard | undefined = parseArkCard(content);
@@ -1072,7 +1116,28 @@ struct ChatRoomPage {
     if (field === 'source') { return card.source; }
     if (field === 'scheme') { return card.scheme; }
     if (field === 'cover') { return card.cover; }
+    // 音频模板里的 <audio src>：优先用它，老卡片没有时退回 scheme 里的 src。
+    if (field === 'audio') {
+      if (card.audioUrl.length > 0) { return card.audioUrl; }
+      const fromScheme: string = schemeValue(card.scheme, 'src');
+      return fromScheme.length > 0 ? fromScheme : card.scheme;
+    }
     return '';
+  }
+
+  /** 点一下语音卡片：播放 / 暂停，并接上进度条。 */
+  private async toggleArkAudio(content: string, messageId: number): Promise<void> {
+    const url: string = this.arkField(content, 'audio');
+    if (url.length === 0) {
+      this.showToast('这条语音没有可播放的直链');
+      return;
+    }
+    const problem: string = await this.probeAudio(url);
+    if (problem.length > 0) {
+      this.showToast(problem);
+      return;
+    }
+    await this.toggleAudio(url, messageId);
   }
 
   /** 点 ark 卡片：按 scheme host 分流。 */
@@ -1122,15 +1187,55 @@ struct ChatRoomPage {
       this.showToast('直播：' + schemeValue(scheme, 'liveId'));
       return;
     }
+    if (/^https?:/i.test(scheme)) {
+      void this.openExternalLink(scheme);
+      return;
+    }
+    // QQ 群/名片等 mqqapi scheme：交给系统拉起 QQ；未安装时回退到群页面。
+    if (/^(mqqapi|mqq|qq):\/\//i.test(scheme)) {
+      void this.openExternalLink(scheme);
+      return;
+    }
     this.showToast(card.title.length > 0 ? card.title : '卡片');
+  }
+
+  private async openExternalLink(link: string): Promise<void> {
+    const value: string = (link || '').trim();
+    if (value.length === 0) { return; }
+    const uri: string = /^[a-z][a-z0-9+.-]*:/i.test(value)
+      ? value
+      : 'https://www.baidu.com/s?wd=' + encodeURIComponent(value);
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      await context.startAbility({
+        action: 'ohos.want.action.viewData',
+        uri: uri
+      });
+    } catch (error) {
+      // 未安装 QQ 时，mqqapi 群链接回退到 QQ 群官网。
+      if (/^(mqqapi|mqq|qq):\/\//i.test(uri)) {
+        try {
+          const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+          await context.startAbility({ action: 'ohos.want.action.viewData', uri: 'https://qun.qq.com/' });
+          return;
+        } catch (_) { }
+      }
+      this.showToast('未找到可用浏览器');
+    }
+  }
+
+  private openXmlCard(card: XmlCard): void {
+    if (card.url.length > 0) {
+      void this.openExternalLink(card.url);
+      return;
+    }
+    this.showToast(card.title.length > 0 ? card.title : '卡片消息');
   }
 
   /** 收起输入法（点 ＋ 展开更多功能时用）。 */
   private hideKeyboard(): void {
     try {
-      inputMethod.getController().stopInputSession().catch((error: Error) => {
-        Logger.warn('CHAT_ROOM', '收起输入法失败：' + String(error));
-      });
+      // ArkUI-X：通过清焦点收起输入法，不依赖 HarmonyOS IMEKit。
       this.getUIContext().getFocusController().clearFocus();
     } catch (error) {
       Logger.warn('CHAT_ROOM', '收起输入法异常：' + String(error));
@@ -1141,7 +1246,7 @@ struct ChatRoomPage {
   private isOnline(name: string): boolean {
     try {
       const account: string = name.trim();
-      for (let index: number = this.messages.length - 1; index >= 0; index--) {
+      for (let index = this.messages.length - 1; index >= 0; index--) {
         const message: ChatMessage = this.messages[index];
         if (message.user !== account && message.name !== account) { continue; }
         const minutes: number = this.minutesOf(message.time);
@@ -1225,15 +1330,434 @@ struct ChatRoomPage {
     media.url = value;
     media.title = this.mediaTitle.trim();
     media.poster = this.mediaPoster.trim();
+    media.duration = this.mediaDuration;
     this.draftMedia = this.draftMedia.concat([media]);
     this.showUrlDialog = false;
     this.urlValue = '';
     this.mediaTitle = '';
     this.mediaPoster = '';
+    this.mediaDuration = 0;
   }
 
   private removeDraftMedia(index: number): void {
     this.draftMedia = this.draftMedia.filter((_item: ForumMedia, position: number) => position !== index);
+  }
+
+  /**
+   * 从相册/文件选择器挑一个媒体，上传到图床，把直链填进输入框。
+   * 图片上传成功直接加入待发送；视频/音乐/附件上传成功后填链接，留给用户补标题和封面。
+   * 图床不可用时（404 / 限流 / 网络错误）只提示，不阻断：仍可手动粘贴直链。
+   */
+  private async pickImageForUpload(): Promise<void> {
+    if (this.uploadingImage) { return; }
+    this.uploadingImage = true;
+    try {
+      const uri: string = await this.pickMediaUri();
+      if (uri.length === 0) { return; }
+      // 「文件」按钮走 dbimg（只收音频/视频/图片）；图片/视频仍走原来的图床。
+      const result: ImageHostResult = this.mediaKind === 'file' ?
+        await ImageHostService.uploadFileAsMedia(uri) : await ImageHostService.upload(uri);
+      if (result.ok && result.url.length > 0) {
+        this.urlValue = result.url;
+        if (this.mediaKind === 'image') {
+          // 图片没有标题/封面字段，上传完直接进待发送列表，省掉一次「添加」。
+          this.addDraftMedia();
+          this.showToast('已上传（' + (result.host || '图床') + '），图片已加入待发送');
+        } else {
+          if (this.mediaTitle.trim().length === 0) { this.mediaTitle = this.mediaFileName(uri); }
+          // 视频：把图床返回的封面帧和时长一起带上，卡片就能显示封面 + 时长角标。
+          if (this.mediaKind === 'video') {
+            if (result.poster.length > 0) { this.mediaPoster = result.poster; }
+            this.mediaDuration = result.durationSec;
+          }
+          this.showToast('已上传（' + (result.host || '图床') + '），可补充信息后点添加');
+        }
+        Logger.info('CHAT_IMAGE_HOST', '媒体上传成功，类型=' + this.mediaKind + '，图床=' + result.host);
+        return;
+      }
+      Logger.error('CHAT_IMAGE_HOST', '媒体上传失败：' + result.message + '，状态码=' + String(result.httpStatus));
+      if (result.notFound) {
+        this.showToast('图床接口 404，请手动填写直链');
+      } else {
+        this.showToast(this.uploadFailureText(result));
+      }
+    } catch (error) {
+      Logger.error('CHAT_IMAGE_HOST', '选择或上传媒体失败：' + String(error));
+      this.showToast('选择文件失败，可手动填写直链');
+    } finally {
+      this.uploadingImage = false;
+    }
+  }
+
+  /** 按当前媒体类型打开对应的系统选择器，返回一个 URI（取消则返回空串）。 */
+  private async pickMediaUri(): Promise<string> {
+    if (this.mediaKind === 'video') {
+      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.VIDEO_TYPE;
+      const selected: photoAccessHelper.PhotoSelectResult =
+        await new photoAccessHelper.PhotoViewPicker().select(options);
+      return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+    }
+    if (this.mediaKind === 'audio') {
+      const options: picker.AudioSelectOptions = new picker.AudioSelectOptions();
+      const uris: string[] = await new picker.AudioViewPicker().select(options);
+      return uris.length > 0 ? uris[0] : '';
+    }
+    if (this.mediaKind === 'file') {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
+      return uris.length > 0 ? uris[0] : '';
+    }
+    const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+    const selected: photoAccessHelper.PhotoSelectResult =
+      await new photoAccessHelper.PhotoViewPicker().select(options);
+    return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+  }
+
+  /** 从 URI 末段取文件名，作附件/视频的默认标题。 */
+  private mediaFileName(uri: string): string {
+    const clean: string = uri.split('?')[0];
+    const slash: number = clean.lastIndexOf('/');
+    const name: string = slash >= 0 ? clean.substring(slash + 1) : clean;
+    return name.length > 0 ? name : '';
+  }
+
+  private uploadButtonLabel(): string {
+    if (this.uploadingImage) { return '上传中…'; }
+    if (this.mediaKind === 'video') { return '从相册选视频'; }
+    if (this.mediaKind === 'audio') { return '选择音频'; }
+    if (this.mediaKind === 'file') { return '选择文件'; }
+    return '从相册上传';
+  }
+
+  private uploadHint(): string {
+    if (this.mediaKind === 'image') { return '上传到奶昔图床（≤50MB），失败可手填直链'; }
+    if (this.mediaKind === 'video') { return '奶昔 ≤50MB；失败可手填链接'; }
+    if (this.mediaKind === 'audio') { return '奶昔 ≤50MB；失败可手填链接'; }
+    return '奶昔支持图片/音视频 ≤50MB；txt/pdf 等请手填链接';
+  }
+
+  /** 上传失败的提示：压成一行短句，完整原因只进日志，避免 toast 铺满屏幕。 */
+  private uploadFailureText(result: ImageHostResult): string {
+    const message: string = (result.message || '未知原因').replace(/\s+/g, ' ').trim();
+    const short: string = message.length > 64 ? message.substring(0, 64) + '…' : message;
+    return '上传失败：' + short + '；可手填直链';
+  }
+
+  // ---------------- 底部功能栏 ----------------
+
+  /** 功能栏图标：选中态点亮（品牌色 + 软底胶囊），切换时带过渡动画。 */
+  @Builder
+  private composerIcon(symbol: Resource, active: boolean, action: () => void) {
+    Column() {
+      SymbolGlyph(symbol)
+        .fontSize(Ui.fs('23vp', this.fontScale))
+        .fontColor([active ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme)])
+    }
+      .width('52vp')
+      .height('44vp')
+      .justifyContent(FlexAlign.Center)
+      .borderRadius('22vp')
+      .backgroundColor(active ? Ui.accentSoft(this.darkTheme) : Color.Transparent)
+      .animation({ duration: 180, curve: Curve.EaseOut })
+      .onClick(action)
+  }
+
+  /** 收起所有已展开的功能面板（点输入框、切到别的面板时用）。 */
+  private closeFunctionPanels(): void {
+    if (!this.showEmoji && !this.showPlus && !this.showVoicePanel) { return; }
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.showEmoji = false;
+      this.showPlus = false;
+      this.showVoicePanel = false;
+    });
+  }
+
+  private toggleEmojiPanel(): void {
+    const next: boolean = !this.showEmoji;
+    if (next) { this.hideKeyboard(); }
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.showEmoji = next;
+      this.showPlus = false;
+      this.showVoicePanel = false;
+    });
+  }
+
+  private togglePlusPanel(): void {
+    const next: boolean = !this.showPlus;
+    // 展开更多功能时先收起输入法，避免键盘挡住面板。
+    if (next) { this.hideKeyboard(); }
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.showPlus = next;
+      this.showEmoji = false;
+      this.showVoicePanel = false;
+    });
+  }
+
+  /** 相机拍摄：系统相机拍完直接上传图床，图片进待发送列表。 */
+  private async capturePhoto(): Promise<void> {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const profile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK
+      };
+      const picked: cameraPicker.PickerResult =
+        await cameraPicker.pick(context, [cameraPicker.PickerMediaType.PHOTO], profile);
+      const uri: string = picked.resultUri;
+      if (uri === undefined || uri.length === 0) { return; }
+      const result: ImageHostResult = await ImageHostService.upload(uri);
+      if (result.ok && result.url.length > 0) {
+        this.mediaKind = 'image';
+        this.urlValue = result.url;
+        this.addDraftMedia();
+        this.showToast('已上传（' + (result.host || '图床') + '），照片已加入待发送');
+      } else {
+        this.showToast(this.uploadFailureText(result));
+      }
+    } catch (error) {
+      Logger.error('CHAT_CAMERA', '拍照失败：' + String(error));
+      this.showToast('拍照未完成：' + String(error));
+    }
+  }
+
+  // ---------------- 我的表情（自定义表情包） ----------------
+
+  /** 只挑一张图片（表情上传用）。 */
+  private async pickImageUri(): Promise<string> {
+    const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+    const selected: photoAccessHelper.PhotoSelectResult =
+      await new photoAccessHelper.PhotoViewPicker().select(options);
+    return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+  }
+
+  /** 选图 → 上传到奶昔图床 → 收进本地表情包。动图静态图一样处理。 */
+  private async uploadSticker(): Promise<void> {
+    if (this.stickerBusy) { return; }
+    this.stickerBusy = true;
+    try {
+      const uri: string = await this.pickImageUri();
+      if (uri.length === 0) { return; }
+      const result: ImageHostResult = await ImageHostService.upload(uri);
+      if (result.ok && result.url.length > 0) {
+        const added: boolean = await EmojiStore.add(result.url);
+        this.stickers = EmojiStore.list();
+        this.showToast(added ? '表情已添加（' + (result.host || '图床') + '）' : '这个表情已经在本地了');
+      } else {
+        this.showToast(this.uploadFailureText(result));
+        Logger.error('CHAT_EMOJI', '表情上传失败：' + result.message);
+      }
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '添加表情失败：' + String(error));
+      this.showToast('添加表情失败：' + String(error));
+    } finally {
+      this.stickerBusy = false;
+    }
+  }
+
+  /** 点一下就发出去：群里发 rich 图片消息，私聊通道发直链文本。 */
+  private async sendSticker(url: string): Promise<void> {
+    if (this.sending) { return; }
+    try {
+      if (this.peer.length > 0) {
+        this.draft = url;
+        await this.sendPrivateChat();
+        return;
+      }
+      const card: ChatCard = new ChatCard();
+      card.kind = 'rich';
+      card.text = '';
+      const media: ForumMedia = new ForumMedia();
+      media.kind = 'image';
+      media.url = url;
+      card.media = [media];
+      this.showEmoji = false;
+      await this.sendCard(card);
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '发送表情失败：' + String(error));
+      this.showToast('发送表情失败：' + String(error));
+    }
+  }
+
+  /** 长按图片消息：把这条消息里的直链收进本地表情包。 */
+  private async captureSticker(url: string): Promise<void> {
+    try {
+      const added: boolean = await EmojiStore.add(url);
+      this.stickers = EmojiStore.list();
+      this.showToast(added ? '已添加到我的表情' : '这个表情已经在本地了');
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '收藏表情失败：' + String(error));
+      this.showToast('收藏表情失败：' + String(error));
+    }
+  }
+
+  /** 长按表情：从本地表情包删除。 */
+  private async deleteSticker(url: string): Promise<void> {
+    try {
+      const removed: boolean = await EmojiStore.remove(url);
+      this.stickers = EmojiStore.list();
+      this.showToast(removed ? '已删除该表情' : '表情不存在');
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '删除表情失败：' + String(error));
+      this.showToast('删除表情失败：' + String(error));
+    }
+  }
+
+  private async importStickers(): Promise<void> {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const added: number = await EmojiStore.importPack(context);
+      this.stickers = EmojiStore.list();
+      this.showToast(added > 0 ? '已导入 ' + String(added) + ' 个表情' : '没有新增表情');
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '导入表情包失败：' + String(error));
+      this.showToast('导入失败：' + String(error));
+    }
+  }
+
+  private async exportStickers(): Promise<void> {
+    try {
+      if (EmojiStore.count() === 0) {
+        this.showToast('本地还没有表情，先上传或收藏几个');
+        return;
+      }
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const path: string = await EmojiStore.exportPack(context);
+      this.showToast(path.length > 0 ? '已导出：无音影视表情包.json' : '已取消导出');
+    } catch (error) {
+      Logger.error('CHAT_EMOJI', '导出表情包失败：' + String(error));
+      this.showToast('导出失败：' + String(error));
+    }
+  }
+
+  // ---------------- 语音消息（按住说话） ----------------
+
+  private openVoicePanel(): void {
+    this.hideKeyboard();
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.showVoicePanel = true;
+      this.showPlus = false;
+      this.showEmoji = false;
+    });
+  }
+
+  private clearRecordTimer(): void {
+    if (this.recordTimerId >= 0) {
+      clearInterval(this.recordTimerId);
+      this.recordTimerId = -1;
+    }
+  }
+
+  /** 按下：申请麦克风 → 开始录音 → 起计时。 */
+  private async startVoice(): Promise<void> {
+    if (this.recording || this.voiceBusy) { return; }
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const granted: boolean = await VoiceRecorder.requestPermission(context);
+      if (!granted) {
+        this.showToast('没有麦克风权限，无法录音');
+        return;
+      }
+      const path: string = VoiceRecorder.newPath(context);
+      await this.voiceRecorder.start(path);
+      this.recording = true;
+      this.recordSec = 0;
+      this.clearRecordTimer();
+      this.recordTimerId = setInterval(() => {
+        if (!this.recording) { return; }
+        this.recordSec = this.recordSec + 1;
+        // 单条语音上限 60 秒，到点自动收尾上传。
+        if (this.recordSec >= 60) { void this.finishVoice(); }
+      }, 1000);
+    } catch (error) {
+      this.recording = false;
+      this.clearRecordTimer();
+      Logger.error('CHAT_VOICE', '开始录音失败：' + String(error));
+      this.showToast('录音失败：' + String(error));
+    }
+  }
+
+  /** 松手：停止录音 → 上传图床 → 直链封装成音频消息发出去。 */
+  private async finishVoice(): Promise<void> {
+    if (!this.recording) { return; }
+    this.recording = false;
+    this.voiceSlideCancel = false;
+    this.clearRecordTimer();
+    let clipPath: string = '';
+    let uploadPath: string = '';
+    try {
+      const clip: VoiceClip = await this.voiceRecorder.stop();
+      clipPath = clip.path;
+      if (clip.durationMs < VoiceRecorder.MIN_DURATION_MS) {
+        VoiceRecorder.deleteFile(clipPath);
+        this.showToast('说话时间太短');
+        return;
+      }
+      // 录的是 wav，直接传原件（dbimg 支持 audio/wav）。
+      this.voiceBusy = true;
+      this.showToast('正在上传语音…');
+      const result: ImageHostResult = await ImageHostService.upload(uploadPath.length > 0 ? uploadPath : clipPath);
+      if (!result.ok || result.url.length === 0) {
+        Logger.error('CHAT_VOICE', '语音上传失败：' + result.message);
+        this.showToast(this.uploadFailureText(result));
+        return;
+      }
+      const seconds: number = Math.max(1, Math.round(clip.durationMs / 1000));
+      await this.sendVoiceMessage(result.url, seconds);
+      Logger.info('CHAT_VOICE', '语音已发送，时长=' + String(seconds) + '秒，图床=' + result.host);
+    } catch (error) {
+      Logger.error('CHAT_VOICE', '发送语音失败：' + String(error));
+      this.showToast('发送语音失败：' + String(error));
+    } finally {
+      this.voiceBusy = false;
+      // 临时 .mp4 副本用完即删，.mp3 原件留在私有目录里由「音频管理」统一清理。
+      if (uploadPath.length > 0) { VoiceRecorder.deleteFile(uploadPath); }
+      VoiceStore.enforce();
+    }
+  }
+
+  /** 放弃这段录音（点「取消」、上滑松手或离开页面）。closePanel=false 时保留面板方便重录。 */
+  private async cancelVoice(closePanel: boolean = true): Promise<void> {
+    if (this.recording) {
+      this.recording = false;
+      this.voiceSlideCancel = false;
+      this.clearRecordTimer();
+      await this.voiceRecorder.cancel();
+      this.showToast(closePanel ? '已取消录音' : '已取消，可重新按住说话');
+    }
+    if (closePanel) {
+      this.closeFunctionPanels();
+    }
+  }
+
+  /** 把直链封装成一条音频媒体消息发送；私聊通道仍走文本，发直链。 */
+  private async sendVoiceMessage(url: string, seconds: number): Promise<void> {
+    if (this.peer.length > 0) {
+      this.draft = url;
+      await this.sendPrivateChat();
+      return;
+    }
+    // QQ 富文本 XML：serviceID=2 音频模板，<audio src> 放 wav 直链，brief 供列表预览。
+    const title: string = '语音 ' + String(seconds) + '″';
+    const safeUrl: string = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const scheme: string = 'wuyinvideo://audio?src=' + encodeURIComponent(url) +
+      '&duration=' + String(seconds) + '&title=' + encodeURIComponent(title);
+    const xml: string = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' +
+      '<msg serviceID="2" templateID="1" action="web" brief="' + title + '"' +
+      ' url="' + scheme.replace(/&/g, '&amp;') + '" sourceMsgId="0">' +
+      '<item layout="2">' +
+      '<audio src="' + safeUrl + '" duration="' + String(seconds) + '"/>' +
+      '<title>' + title + '</title><summary></summary>' +
+      '</item>' +
+      '<source name=""/>' +
+      '</msg>';
+    const card: ChatCard = new ChatCard();
+    card.kind = 'text';
+    card.text = xml;
+    this.closeFunctionPanels();
+    await this.sendCard(card);
   }
 
   private mediaLabel(kind: string): string {
@@ -1292,9 +1816,74 @@ struct ChatRoomPage {
     this.draft = this.draft + emoji;
   }
 
+  /** 把正文按「@昵称」切成片段：@ 后的连续非空白字符算昵称，其余是普通文字。 */
+  private mentionParts(text: string): MentionPart[] {
+    const source: string = typeof text === 'string' ? text : '';
+    const parts: MentionPart[] = [];
+    let cursor: number = 0;
+    while (cursor < source.length) {
+      const at: number = source.indexOf('@', cursor);
+      if (at < 0) {
+        parts.push(new MentionPart(source.substring(cursor), false));
+        cursor = source.length;
+        break;
+      }
+      if (at > cursor) {
+        parts.push(new MentionPart(source.substring(cursor, at), false));
+      }
+      let end: number = at + 1;
+      while (end < source.length) {
+        const ch: string = source.charAt(end);
+        if (ch === '@' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+          break;
+        }
+        end++;
+      }
+      if (end === at + 1) {
+        // 单独一个 @：当普通字符处理，别把后面的空格也染成强调色。
+        parts.push(new MentionPart('@', false));
+        cursor = at + 1;
+      } else {
+        parts.push(new MentionPart(source.substring(at, end), true));
+        cursor = end;
+      }
+    }
+    if (parts.length === 0) {
+      parts.push(new MentionPart('', false));
+    }
+    return parts;
+  }
+
+  /** 长按头像 / 选择成员：把「@昵称 」补到草稿末尾，并聚焦输入框（可连续 @ 多个成员）。 */
   private insertMention(name: string): void {
-    this.draft = this.draft + '@' + name + ' ';
+    const nick: string = typeof name === 'string' ? name.trim() : '';
+    if (nick.length === 0) {
+      return;
+    }
+    const base: string = this.draft;
+    const space: string = base.length > 0 && !base.endsWith(' ') ? ' ' : '';
+    this.draft = base + space + '@' + nick + ' ';
     this.showMembers = false;
+    this.focusComposerEnd();
+  }
+
+  /** 聚焦输入框并把光标移到草稿末尾；连续 @ 时每次都回到最新位置。 */
+  private focusComposerEnd(): void {
+    // 等这一帧的 draft 落到 TextInput 上，再聚焦 + 定位光标，避免文字更新把光标重置。
+    setTimeout(() => {
+      try {
+        focusControl.requestFocus('chat-composer');
+      } catch (error) {
+        Logger.warn('CHAT_ROOM', '聚焦输入框失败：' + String(error));
+      }
+      setTimeout(() => {
+        try {
+          this.composerController.caretPosition(this.draft.length);
+        } catch (error) {
+          Logger.warn('CHAT_ROOM', '移动输入光标失败：' + String(error));
+        }
+      }, 60);
+    }, 30);
   }
 
   private formatAction(message: ChatMessage): string {
@@ -1328,14 +1917,18 @@ struct ChatRoomPage {
       }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
-      // 排行榜入口（群聊与私聊都可看）
-      SymbolGlyph(SymbolIcons.trophy())
-        .fontSize(Ui.fs('18vp', this.fontScale))
-        .fontColor([Ui.ink(this.darkTheme)])
+      // 排行榜入口（群聊与私聊都可看）：鸿蒙原生奖杯（实心）+ 主题强调色，和旁边的「⋮」区分开。
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(SymbolIcons.trophyFill())
+          .fontSize(Ui.fs('19vp', this.fontScale))
+          .fontColor([Ui.accentStrong(this.darkTheme)])
+      }
         .width('36vp')
         .height('36vp')
         .borderRadius('18vp')
-        .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+        .backgroundColor(Ui.accentSoft(this.darkTheme))
+        .border({ width: 1, color: Ui.accentRing(this.darkTheme) })
+        .accessibilityText('排行榜')
         .onClick(() => { this.openRankPage(); })
       if (!this.privateMode) {
         Text('⋮')
@@ -1413,6 +2006,10 @@ struct ChatRoomPage {
             .width('32vp')
             .height('32vp')
             .onClick(() => { this.openProfile(message.user); })
+            // 长按头像：把「@昵称 」插进输入框并把光标带到末尾，可连续长按 @ 多个成员。
+            .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+              this.insertMention(message.name.length > 0 ? message.name : message.user);
+            }))
         }
         Column({ space: '3vp' }) {
           Row({ space: '5vp' }) {
@@ -1499,21 +2096,42 @@ struct ChatRoomPage {
       .width('100%')
   }
 
+  /** 消息里第 index 张图片的直链（越界返回空串），供单图/多图分支判断。 */
+  private imageAt(message: ChatMessage, index: number): string {
+    const list: string[] = MediaCodec.images(MediaCodec.decode(message.content));
+    return index >= 0 && index < list.length ? list[index] : '';
+  }
+
   /** 富媒体块：图片九宫格 + 视频/音乐/附件行，rich 与 quote 气泡共用。 */
   @Builder
   private mediaBlock(message: ChatMessage) {
-    if (MediaCodec.images(MediaCodec.decode(message.content)).length > 0) {
-      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center, alignItems: ItemAlign.Center }) {
+    if (this.imageAt(message, 0).length > 0 && this.imageAt(message, 1).length === 0) {
+      // 单图：直接贴气泡左侧渲染，不套「撑满 + 居中」的容器，左侧不会再出现一段空白。
+      Image(this.imageAt(message, 0))
+        .width('140vp')
+        .height('140vp')
+        .objectFit(ImageFit.Cover)
+        .borderRadius('10vp')
+        .onClick(() => { this.showToast('图片：' + this.imageAt(message, 0)); })
+        // 长按图片消息：把这条直链收进「我的表情」。
+        .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+          void this.captureSticker(this.imageAt(message, 0));
+        }))
+    } else if (this.imageAt(message, 1).length > 0) {
+      // 多图：按气泡宽度换行，整行从左侧起排（不居中，避免左边留白）。
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
         ForEach(MediaCodec.images(MediaCodec.decode(message.content)).slice(0, 9),
           (url: string, index: number) => {
-            // 图片按自身尺寸展示（不裁切成方块），限制最大宽高，整体水平居中。
+            // 图片按自身尺寸展示（不裁切成方块），只在右侧/下方留 2vp 网格间距。
             Image(url)
               .width('140vp')
               .height('140vp')
               .objectFit(ImageFit.Cover)
               .borderRadius('10vp')
-              .margin('2vp')
+              .margin({ right: '2vp', bottom: '2vp' })
               .onClick(() => { this.showToast('图片：' + url); })
+              // 长按图片消息：把这条直链收进「我的表情」。
+              .gesture(LongPressGesture({ repeat: false }).onAction(() => { void this.captureSticker(url); }))
           }, (url: string, index: number) => 'chat-img-' + String(message.id) + '-' + String(index))
       }
         .width('100%')
@@ -1530,6 +2148,14 @@ struct ChatRoomPage {
       (media: ForumMedia, index: number) => {
         this.fileCard(media)
       }, (media: ForumMedia, index: number) => 'chat-file-' + String(message.id) + '-' + String(index))
+  }
+
+  /** 视频时长角标：秒 → mm:ss。 */
+  private videoDurationText(seconds: number): string {
+    const total: number = Math.max(0, Math.round(seconds));
+    const min: number = Math.floor(total / 60);
+    const sec: number = total % 60;
+    return (min < 10 ? '0' : '') + String(min) + ':' + (sec < 10 ? '0' : '') + String(sec);
   }
 
   /** 视频消息：直接在气泡里内嵌可播放控件。 */
@@ -1564,6 +2190,17 @@ struct ChatRoomPage {
           SymbolGlyph(SymbolIcons.play())
             .fontSize(Ui.fs('34vp', this.fontScale))
             .fontColor(['#FFFFFF'])
+          // 时长角标：上传时从图床响应里带回来的 image.duration。
+          if (media.duration > 0) {
+            Text(this.videoDurationText(media.duration))
+              .fontSize(Ui.fs('10vp', this.fontScale))
+              .fontColor('#FFFFFF')
+              .padding({ left: '5vp', right: '5vp', top: '1vp', bottom: '1vp' })
+              .borderRadius('4vp')
+              .backgroundColor('#99000000')
+              .align(Alignment.BottomEnd)
+              .margin({ right: '6vp', bottom: '6vp' })
+          }
         }
           .width('200vp')
           .height('112vp')
@@ -1731,11 +2368,19 @@ struct ChatRoomPage {
         count: '',
         blessing: '',
         address: '',
-        playing: false,
-        positionMs: 0,
-        durationMs: 0,
-        onTap: (): void => { this.openArkCard(message.content); },
-        onSeekPercent: (_percent: number): void => {}
+        platformKey: PlatformLinks.detect(this.arkField(message.content, 'scheme')),
+        // 语音卡片：跟着页面上的音频播放器走，点一下播/停，进度条可拖。
+        playing: this.isPlaying(message.id, this.arkField(message.content, 'audio')),
+        positionMs: this.isPlaying(message.id, this.arkField(message.content, 'audio')) ? this.audioPosMs : 0,
+        durationMs: this.isPlaying(message.id, this.arkField(message.content, 'audio')) ? this.audioDurMs : 0,
+        onTap: (): void => {
+          if (this.arkKind(message.content) === 'audio') {
+            void this.toggleArkAudio(message.content, message.id);
+          } else {
+            this.openArkCard(message.content);
+          }
+        },
+        onSeekPercent: (percent: number): void => { this.seekAudioPercent(percent); }
       })
     } else if (this.isXmlCard(message.content)) {
       ChatCardMessage({
@@ -1753,6 +2398,7 @@ struct ChatRoomPage {
         count: this.xmlCardOf(message.content).count,
         blessing: this.xmlCardOf(message.content).blessing,
         address: this.xmlCardOf(message.content).address,
+        platformKey: PlatformLinks.detect(this.xmlCardOf(message.content).url),
         // 只有"当前正在播的那条"才带播放态与进度，其它音频卡片保持静止。
         playing: this.isPlaying(message.id, this.xmlCardOf(message.content).url),
         positionMs: this.isPlaying(message.id, this.xmlCardOf(message.content).url) ? this.audioPosMs : 0,
@@ -1776,10 +2422,16 @@ struct ChatRoomPage {
       if (MediaCodec.decode(message.content).kind === 'rich') {
         // 富文本：一段文字 + 任意条媒体，媒体块与文字同气泡。
         if (MediaCodec.decode(message.content).text.length > 0) {
-          Text(MediaCodec.decode(message.content).text)
+          Text() {
+            ForEach(this.mentionParts(MediaCodec.decode(message.content).text),
+              (part: MentionPart, index: number) => {
+                Span(part.text)
+                  .fontColor(part.mention ? Ui.accentStrong(this.darkTheme) :
+                    (message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme)))
+              }, (part: MentionPart, index: number) => 'rich-part-' + String(message.id) + '-' + String(index))
+          }
             .fontSize(this.tablet() ? '15vp' : '14vp')
             .lineHeight(this.tablet() ? '22vp' : '20vp')
-            .fontColor(message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme))
             .width('100%')
         }
         this.mediaBlock(message)
@@ -1840,9 +2492,15 @@ struct ChatRoomPage {
             .fontSize(Ui.fs('10.5vp', this.fontScale))
             .fontColor(Ui.inkFaint(this.darkTheme))
             .maxLines(2)
-          Text(MediaCodec.decode(message.content).text)
+          Text() {
+            ForEach(this.mentionParts(MediaCodec.decode(message.content).text),
+              (part: MentionPart, index: number) => {
+                Span(part.text)
+                  .fontColor(part.mention ? Ui.accentStrong(this.darkTheme) :
+                    (message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme)))
+              }, (part: MentionPart, index: number) => 'quote-part-' + String(message.id) + '-' + String(index))
+          }
             .fontSize(Ui.fs('14vp', this.fontScale))
-            .fontColor(message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme))
           // 引用消息里也可以带富媒体。
           if (MediaCodec.decode(message.content).hasMedia()) {
             this.mediaBlock(message)
@@ -1852,12 +2510,20 @@ struct ChatRoomPage {
           .borderRadius('10vp')
           .backgroundColor(message.mine(this.session.user) ? Ui.accent(this.darkTheme) : Ui.card(this.darkTheme))
       } else {
-        Text(MediaCodec.decode(message.content).text)
+        Text() {
+          ForEach(this.mentionParts(MediaCodec.decode(message.content).text),
+            (part: MentionPart, index: number) => {
+              Span(part.text)
+                .fontColor(part.mention ? Ui.accentStrong(this.darkTheme) :
+                  (message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme)))
+            }, (part: MentionPart, index: number) => 'text-part-' + String(message.id) + '-' + String(index))
+        }
           .fontSize(Ui.fs(this.tablet() ? '15vp' : '14vp', this.fontScale))
           .lineHeight(this.tablet() ? '22vp' : '20vp')
-          .fontColor(message.mine(this.session.user) ? '#FFFFFF' : Ui.ink(this.darkTheme))
       }
     }
+      // 气泡内所有内容都从左侧起排：文字撑满时图片也不会被居中而多出左边空白。
+      .alignItems(HorizontalAlign.Start)
       // 纯媒体消息（图片/视频/音乐/文件）不套文字气泡底色，直接显示媒体卡。
       .padding(this.mediaOnly(message) ? '0vp' : '8vp')
       .borderRadius(Ui.R_MD)
@@ -1990,76 +2656,136 @@ struct ChatRoomPage {
           .padding('6vp')
           .backgroundColor(Ui.glassTintSoft(this.darkTheme))
       }
-      Row({ space: '7vp' }) {
-        Text('☺')
-          .fontSize(Ui.fs('22vp', this.fontScale))
-          .fontColor(this.showEmoji ? Ui.accent(this.darkTheme) : Ui.inkSoft(this.darkTheme))
-          .width('34vp')
-          .height('38vp')
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.showEmoji = !this.showEmoji;
-            this.showPlus = false;
+      Column() {
+        // 第一行：输入框 + 发送。
+        Row({ space: '8vp' }) {
+          TextInput({
+            text: this.draft,
+            placeholder: this.muted ? '你已被禁言' : '说点什么吧...',
+            // 长按头像插入 @昵称 后，靠这个控制器把光标挪到末尾。
+            controller: this.composerController
           })
-        TextInput({ text: this.draft, placeholder: this.muted ? '你已被禁言' : '说点什么吧...' })
-          .layoutWeight(1)
-          .height('42vp')
-          .fontSize(Ui.fs('14vp', this.fontScale))
-          .fontColor(Ui.ink(this.darkTheme))
-          .placeholderColor(Ui.inkFaint(this.darkTheme))
-          .caretColor(Ui.accent(this.darkTheme))
-          .backgroundColor(Ui.glassTintSoft(this.darkTheme))
-          .borderRadius('21vp')
-          .border({ width: 1, color: Ui.glassRingSoft(this.darkTheme) })
-          .padding({ left: '14vp', right: '14vp' })
-          .enabled(!this.muted)
-          .onChange((value: string) => {
-            this.draft = value;
-            if (value.endsWith('@')) {
-              this.showMembers = true;
-            }
+            .id('chat-composer')
+            .layoutWeight(1)
+            .height('42vp')
+            .fontSize(Ui.fs('14vp', this.fontScale))
+            .fontColor(Ui.ink(this.darkTheme))
+            .placeholderColor(Ui.inkFaint(this.darkTheme))
+            .caretColor(Ui.accent(this.darkTheme))
+            .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+            .borderRadius('21vp')
+            .border({ width: 1, color: Ui.glassRingSoft(this.darkTheme) })
+            .padding({ left: '14vp', right: '14vp' })
+            .enabled(!this.muted)
+            .onFocus(() => {
+              // 点输入框：收起下面已展开的功能面板，直接回到打字。
+              this.closeFunctionPanels();
+            })
+            .onChange((value: string) => {
+              this.draft = value;
+              if (value.endsWith('@')) {
+                this.showMembers = true;
+              }
+            })
+            .onSubmit(() => { void this.sendText(); })
+          PrimaryButton({ label: this.sending ? '…' : '发送', compact: true, onTap: (): void => { void this.sendText(); } })
+        }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .padding({ top: '8vp' })
+        // 第二行：语音 / 图片 / 相机 / 表情 / 更多，五个图标均匀排布（配色沿用主题，不另起色）。
+        Row() {
+          this.composerIcon($r('sys.symbol.mic'), this.showVoicePanel, (): void => {
+            if (this.showVoicePanel) { void this.cancelVoice(); } else { this.openVoicePanel(); }
           })
-          .onSubmit(() => { void this.sendText(); })
-        Text('＋')
-          .fontSize(Ui.fs('22vp', this.fontScale))
-          .fontColor(this.showPlus ? Ui.accent(this.darkTheme) : Ui.inkSoft(this.darkTheme))
-          .width('32vp')
-          .height('38vp')
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            // 点 ＋ 展开更多功能时先收起输入法，避免键盘挡住面板。
-            if (!this.showPlus) {
-              this.hideKeyboard();
-            }
-            this.showPlus = !this.showPlus;
-            this.showEmoji = false;
-          })
-        PrimaryButton({ label: this.sending ? '…' : '发送', compact: true, onTap: (): void => { void this.sendText(); } })
+          this.composerIcon($r('sys.symbol.picture'), this.showUrlDialog, (): void => { this.openUrl('image'); })
+          this.composerIcon($r('sys.symbol.camera'), false, (): void => { void this.capturePhoto(); })
+          this.composerIcon($r('sys.symbol.face_smiling'), this.showEmoji, (): void => { this.toggleEmojiPanel(); })
+          this.composerIcon($r('sys.symbol.plus'), this.showPlus, (): void => { this.togglePlusPanel(); })
+        }
+          .width('100%')
+          .justifyContent(FlexAlign.SpaceAround)
+          .padding({ top: '2vp', bottom: '2vp' })
       }
         .width('100%')
-        .padding({ top: '8vp', bottom: '8vp' })
+        .padding({ bottom: '8vp' })
       if (this.showEmoji) {
         Column({ space: '6vp' }) {
           Row({ space: '6vp' }) {
             GlassChip({ label: '热门', selected: this.emojiTab === 0, compact: true, onTap: (): void => { this.emojiTab = 0; } })
             GlassChip({ label: '精选', selected: this.emojiTab === 1, compact: true, onTap: (): void => { this.emojiTab = 1; } })
+            GlassChip({ label: '我的表情', selected: this.emojiTab === 2, compact: true, onTap: (): void => { this.emojiTab = 2; } })
           }
             .width('100%')
-          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-            ForEach(this.emojiTab === 0 ? this.emojisHot : this.emojisSelect, (emoji: string) => {
-              Text(emoji)
-                .fontSize(Ui.fs('24vp', this.fontScale))
-                .width('38vp')
-                .height('38vp')
+          if (this.emojiTab === 2) {
+            Row({ space: '6vp' }) {
+              GlassChip({
+                label: this.stickerBusy ? '上传中…' : '上传表情',
+                selected: false,
+                compact: true,
+                onTap: (): void => { void this.uploadSticker(); }
+              })
+              GlassChip({ label: '导入', selected: false, compact: true, onTap: (): void => { void this.importStickers(); } })
+              GlassChip({ label: '导出', selected: false, compact: true, onTap: (): void => { void this.exportStickers(); } })
+              Text('共 ' + String(this.stickers.length) + ' 个')
+                .fontSize(Ui.fs('11vp', this.fontScale))
+                .fontColor(Ui.inkFaint(this.darkTheme))
+                .layoutWeight(1)
+                .textAlign(TextAlign.End)
+            }
+              .width('100%')
+            if (this.stickers.length === 0) {
+              Text('还没有自定义表情：点「上传表情」传一张，或长按聊天里的图片直接收藏')
+                .fontSize(Ui.fs('11vp', this.fontScale))
+                .fontColor(Ui.inkFaint(this.darkTheme))
+                .width('100%')
+                .height('140vp')
                 .textAlign(TextAlign.Center)
-                .onClick(() => { this.insertEmoji(emoji); })
-            }, (emoji: string) => 'emoji-' + emoji)
+            } else {
+              Scroll() {
+                Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                  ForEach(this.stickers, (item: StickerItem) => {
+                    // 点一下直接发出去；长按从本地删除。
+                    Image(item.url)
+                      .width('46vp')
+                      .height('46vp')
+                      .objectFit(ImageFit.Contain)
+                      .borderRadius('8vp')
+                      .margin('3vp')
+                      .onClick(() => { void this.sendSticker(item.url); })
+                      .gesture(LongPressGesture({ repeat: false }).onAction(() => { void this.deleteSticker(item.url); }))
+                  }, (item: StickerItem) => 'sticker-' + item.url)
+                }
+                  .width('100%')
+              }
+                .width('100%')
+                .height('140vp')
+                .scrollBar(BarState.Off)
+            }
+            Text('导出文件名为「无音影视表情包.json」；长按表情可删除')
+              .fontSize(Ui.fs('10vp', this.fontScale))
+              .fontColor(Ui.inkFaint(this.darkTheme))
+              .width('100%')
+          } else {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+              ForEach(this.emojiTab === 0 ? this.emojisHot : this.emojisSelect, (emoji: string) => {
+                Text(emoji)
+                  .fontSize(Ui.fs('24vp', this.fontScale))
+                  .width('38vp')
+                  .height('38vp')
+                  .textAlign(TextAlign.Center)
+                  .onClick(() => { this.insertEmoji(emoji); })
+              }, (emoji: string) => 'emoji-' + emoji)
+            }
+              .width('100%')
+              .height('140vp')
           }
-            .width('100%')
-            .height('140vp')
         }
           .width('100%')
           .padding({ top: '6vp', bottom: '8vp' })
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '10vp' })).animation({ duration: 200, curve: Curve.FastOutSlowIn }),
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '6vp' })).animation({ duration: 160, curve: Curve.EaseIn })))
       }
       if (this.showPlus) {
         Column({ space: '8vp' }) {
@@ -2080,6 +2806,89 @@ struct ChatRoomPage {
         }
           .width('100%')
           .padding({ top: '6vp', bottom: '8vp' })
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '10vp' })).animation({ duration: 200, curve: Curve.FastOutSlowIn }),
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '6vp' })).animation({ duration: 160, curve: Curve.EaseIn })))
+      }
+      if (this.showVoicePanel) {
+        Column({ space: '12vp' }) {
+          Text(this.recording
+            ? (this.voiceSlideCancel ? '松开手指取消发送' : '正在录音 ' + String(this.recordSec) + '″，上滑可取消')
+            : (this.voiceBusy ? '正在上传语音…' : '按住下面的按钮说话，上滑松手取消'))
+            .fontSize(Ui.fs('12.5vp', this.fontScale))
+            .fontColor(this.recording ? Ui.danger(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .width('100%')
+            .textAlign(TextAlign.Center)
+          Stack({ alignContent: Alignment.Center }) {
+            // 按住录音、松手发送：用 onTouch 的 Down/Up 才能拿到「按住」语义。
+            Column({ space: '4vp' }) {
+              SymbolGlyph(this.recording
+                ? (this.voiceSlideCancel ? $r('sys.symbol.xmark') : $r('sys.symbol.mic_fill'))
+                : $r('sys.symbol.mic'))
+                .fontSize(Ui.fs('34vp', this.fontScale))
+                .fontColor(['#FFFFFF'])
+              Text(this.recording
+                ? (this.voiceSlideCancel ? '松开取消' : String(this.recordSec) + '″')
+                : '按住说话')
+                .fontSize(Ui.fs('12vp', this.fontScale))
+                .fontColor('#FFFFFF')
+            }
+              .width('116vp')
+              .height('116vp')
+              .justifyContent(FlexAlign.Center)
+              .borderRadius('58vp')
+              .linearGradient({
+                angle: 120,
+                colors: [[this.recording ? '#E5484D' : Ui.brandFrom(), 0], [this.recording ? '#C02B30' : Ui.brandTo(), 1]]
+              })
+              .scale({ x: this.recording ? 1.06 : 1, y: this.recording ? 1.06 : 1 })
+              .animation({ duration: UiMotion.PRESS, curve: Curve.FastOutSlowIn })
+              .enabled(!this.voiceBusy)
+              .onTouch((event: TouchEvent) => {
+                const touch: TouchObject | undefined = event.touches.length > 0 ? event.touches[0] : undefined;
+                if (event.type === TouchType.Down) {
+                  // 记下按下位置，之后按手指上滑的距离判断是否取消。
+                  this.recordStartY = touch !== undefined ? touch.y : 0;
+                  this.voiceSlideCancel = false;
+                  void this.startVoice();
+                } else if (event.type === TouchType.Move) {
+                  if (!this.recording) { return; }
+                  const currentY: number = touch !== undefined ? touch.y : this.recordStartY;
+                  this.voiceSlideCancel = (this.recordStartY - currentY) > 56;
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  const cancelled: boolean = this.voiceSlideCancel;
+                  this.voiceSlideCancel = false;
+                  if (cancelled) {
+                    // 上滑取消：丢掉这段录音，面板保持打开方便重录。
+                    void this.cancelVoice(false);
+                  } else {
+                    void this.finishVoice();
+                  }
+                }
+              })
+          }
+            .width('100%')
+            .height('140vp')
+          Row({ space: '10vp' }) {
+            GhostButton({ label: '取消', compact: true, onTap: (): void => { void this.cancelVoice(); } })
+            GhostButton({ label: '改用音频链接', compact: true, onTap: (): void => {
+              this.closeFunctionPanels();
+              this.openUrl('audio');
+            } })
+          }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+          Text('录音先存本地，再上传图床，成功后把直链封装成音频消息发出；单条最长 60 秒')
+            .fontSize(Ui.fs('10.5vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .textAlign(TextAlign.Center)
+        }
+          .width('100%')
+          .padding({ top: '8vp', bottom: '10vp' })
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '10vp' })).animation({ duration: 200, curve: Curve.FastOutSlowIn }),
+            TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: '6vp' })).animation({ duration: 160, curve: Curve.EaseIn })))
       }
     }
       .width('100%')
@@ -2117,6 +2926,9 @@ struct ChatRoomPage {
           this.showPlus = false;
         } else if (kind === 'location') {
           this.showToast('位置分享将在后续版本开放');
+        } else if (kind === 'voice') {
+          // 语音走录音 + 图床上传，不再让人手贴音频链接。
+          this.openVoicePanel();
         } else {
           this.openUrl(kind);
         }
@@ -2328,6 +3140,21 @@ struct ChatRoomPage {
             this.mediaKindChip('附件', 'file')
           }
             .width('100%')
+          // 图片/视频/音乐/附件都先上传到图床；接口不可用时退回手动填写直链。
+          Row({ space: '8vp' }) {
+            GhostButton({
+              label: this.uploadButtonLabel(),
+              compact: true,
+              onTap: (): void => { void this.pickImageForUpload(); }
+            })
+            Text(this.uploadHint())
+              .fontSize(Ui.fs('10.5vp', this.fontScale))
+              .fontColor(Ui.inkFaint(this.darkTheme))
+              .layoutWeight(1)
+              .maxLines(2)
+          }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
           TextInput({ text: this.urlValue, placeholder: '粘贴 http/https 资源链接' })
             .width('100%')
             .height('44vp')

@@ -1,4 +1,4 @@
-import { AppState, PlayerImmersiveConfig } from '../common/AppState';
+﻿import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { DownloadService, DownloadRecord, DownloadState } from '../common/DownloadService';
 import { Logger } from '../common/Logger';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -23,6 +23,8 @@ export struct ManagePage {
   @StorageLink('favoriteVersion') @Watch('refreshLibrarySummary') private favoriteRevision: number = 0;
   @StorageLink('downloadVersion') @Watch('refreshLibrarySummary') private downloadRevision: number = 0;
   @Prop @Watch('initialTabChanged') initialTab: number = 0;
+  /** 顶部状态栏安全区高度（沉浸模式下页面从屏幕顶端开始绘制，标题需要下移）。 */
+  @StorageLink('immersiveTopInset') private topSafeInset: number = 24;
   @State private activeTab: number = 0;
   @State private viewportSize: number = 360;
   @State private favoriteCount: number = 0;
@@ -209,6 +211,8 @@ export struct ManagePage {
       }
         .width('100%')
         .height('100%')
+        // 标题与子页整体下移状态栏高度，避免被状态栏/挖孔遮挡。
+        .padding({ top: (Number.isFinite(this.topSafeInset) ? Math.max(0, this.topSafeInset) : 24) + 'vp' })
     }
       .width('100%')
       .height('100%')
@@ -227,3 +231,4 @@ export struct ManagePage {
     });
   }
 }
+

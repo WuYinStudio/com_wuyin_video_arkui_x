@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
 import { AppState, PlayerImmersiveConfig, WatchRecord } from '../common/AppState';
@@ -214,16 +214,25 @@ export struct PlayHistoryPage {
   /** 右滑操作：玻璃圆钮，分享用主色、删除用危险色，回调仍是 share / remove。 */
   @Builder private historyActions(record: WatchRecord) {
     Row({ space: '8vp' }) {
-      Button('分享').width('56vp').height('56vp').fontSize(Ui.fs('11.5vp', this.fontScale)).fontWeight(FontWeight.Medium)
-        .fontColor(Ui.accent(this.dark)).backgroundColor(this.panel())
-        .borderRadius('28vp')
+      // 分享 / 删除：改用鸿蒙原生符号，避免文字按钮在窄滑出区被裁切。
+      Button({ type: ButtonType.Circle, stateEffect: true }) {
+        SymbolGlyph($r('sys.symbol.share'))
+          .fontSize(Ui.fs('22vp', this.fontScale))
+          .fontColor([Ui.accent(this.dark)])
+      }
+        .width('56vp').height('56vp')
+        .backgroundColor(this.panel())
         .border({ width: 1, color: Ui.glassRingAccent(this.dark) })
         .shadow({ radius: 10, color: Ui.shadowSoft(this.dark), offsetY: 4 })
         .accessibilityText('分享')
         .onClick(() => { void this.share(record); });
-      Button('删除').width('56vp').height('56vp').fontSize(Ui.fs('11.5vp', this.fontScale)).fontWeight(FontWeight.Medium)
-        .fontColor(Ui.danger(this.dark)).backgroundColor(this.panel())
-        .borderRadius('28vp')
+      Button({ type: ButtonType.Circle, stateEffect: true }) {
+        SymbolGlyph($r('sys.symbol.trash'))
+          .fontSize(Ui.fs('22vp', this.fontScale))
+          .fontColor([Ui.danger(this.dark)])
+      }
+        .width('56vp').height('56vp')
+        .backgroundColor(this.panel())
         .border({ width: 1, color: Ui.danger(this.dark) })
         .shadow({ radius: 10, color: Ui.shadowSoft(this.dark), offsetY: 4 })
         .accessibilityText('删除')
@@ -363,74 +372,51 @@ export struct PlayHistoryPage {
         }
           .width('100%')
           .alignItems(VerticalAlign.Center)
-        // 批量操作条：整条玻璃胶囊，内部三枚小胶囊横向滚动。
+        // 一行横向布局：导入 / 导出 / 清空 + 上限 / 过期天数 / 保存（窄屏可横向滚动）。
         Scroll() {
           Row({ space: '8vp' }) {
-            Button('导入').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '16vp', right: '16vp' })
+            Button('导入').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '14vp', right: '14vp' })
               .fontColor(Ui.ink(this.dark)).backgroundColor(this.panel()).borderRadius('17vp')
               .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-              .opacity(this.busy ? 0.5 : 1)
-              .enabled(!this.busy)
+              .opacity(this.busy ? 0.5 : 1).enabled(!this.busy)
               .onClick(() => { void this.importRecords(); });
-            Button('导出').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '16vp', right: '16vp' })
+            Button('导出').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '14vp', right: '14vp' })
               .fontColor(Ui.ink(this.dark)).backgroundColor(this.panel()).borderRadius('17vp')
               .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-              .opacity(this.busy ? 0.5 : 1)
-              .enabled(!this.busy)
+              .opacity(this.busy ? 0.5 : 1).enabled(!this.busy)
               .onClick(() => { void this.exportRecords(); });
-            Button('一键清空').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '16vp', right: '16vp' })
+            Button('一键清空').fontSize(Ui.fs('12vp', this.fontScale)).height('34vp').padding({ left: '14vp', right: '14vp' })
               .fontColor(Ui.danger(this.dark)).backgroundColor(this.panel()).borderRadius('17vp')
               .border({ width: 1, color: Ui.danger(this.dark) })
-              .opacity(this.busy ? 0.5 : 1)
-              .enabled(!this.busy)
+              .opacity(this.busy ? 0.5 : 1).enabled(!this.busy)
               .onClick(() => { void this.confirmClear(); });
+            Divider().vertical(true).height('20vp').color(Ui.divider(this.dark))
+            Text('上限').fontSize(Ui.fs('11.5vp', this.fontScale)).fontColor(this.secondary()).maxLines(1);
+            TextInput({ text: this.limitText }).width('64vp').height('34vp').type(InputType.Number)
+              .fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.ink()).caretColor(Ui.accent(this.dark))
+              .backgroundColor(this.panel()).borderRadius('17vp')
+              .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
+              .padding({ left: '8vp', right: '8vp' })
+              .onChange((value: string) => { this.limitText = value; });
+            Text('过期天数').fontSize(Ui.fs('11.5vp', this.fontScale)).fontColor(this.secondary()).maxLines(1);
+            TextInput({ text: this.expiryText }).width('56vp').height('34vp').type(InputType.Number)
+              .fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.ink()).caretColor(Ui.accent(this.dark))
+              .backgroundColor(this.panel()).borderRadius('17vp')
+              .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
+              .padding({ left: '8vp', right: '8vp' })
+              .onChange((value: string) => { this.expiryText = value; });
+            PrimaryButton({ label: '保存', compact: true, onTap: (): void => { void this.saveOptions(); } })
           }
             .height('100%')
-            .padding({ left: '8vp', right: '8vp' })
+            .padding({ left: '10vp', right: '10vp' })
             .alignItems(VerticalAlign.Center)
         }
           .width('100%')
           .height('50vp')
           .scrollable(ScrollDirection.Horizontal)
           .scrollBar(BarState.Off)
-          .borderRadius('25vp')
-          .linearGradient({
-            angle: 118,
-            colors: [
-              [Ui.glassSheenTop(this.dark), 0],
-              [Ui.glassTintSoft(this.dark), 0.42],
-              [Ui.glassSheenClear(), 1]
-            ]
-          })
-          .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-          .shadow({ radius: 12, color: Ui.shadowSoft(this.dark), offsetY: 4 })
-          .clip(true)
-        // 保留规则：玻璃卡片 + 胶囊输入框（类型、光标、onChange 与原来一致）。
-        Row({ space: '8vp' }) {
-          Text('上限').fontSize(Ui.fs('11.5vp', this.fontScale)).fontColor(this.secondary()).maxLines(1);
-          TextInput({ text: this.limitText }).layoutWeight(1).height('36vp').type(InputType.Number)
-            .fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.ink()).caretColor(Ui.accent(this.dark))
-            .backgroundColor(this.panel()).borderRadius('18vp')
-            .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-            .padding({ left: '10vp', right: '10vp' })
-            .onChange((value: string) => { this.limitText = value; });
-          Text('过期天数').fontSize(Ui.fs('11.5vp', this.fontScale)).fontColor(this.secondary()).maxLines(1);
-          TextInput({ text: this.expiryText }).layoutWeight(1).height('36vp').type(InputType.Number)
-            .fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.ink()).caretColor(Ui.accent(this.dark))
-            .backgroundColor(this.panel()).borderRadius('18vp')
-            .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-            .padding({ left: '10vp', right: '10vp' })
-            .onChange((value: string) => { this.expiryText = value; });
-          PrimaryButton({ label: '保存', compact: true, onTap: (): void => { void this.saveOptions(); } })
-        }
-          .width('100%')
-          .padding({ left: '12vp', right: '12vp', top: '10vp', bottom: '10vp' })
-          .borderRadius('20vp')
-          .backgroundColor(Ui.card(this.dark))
-          .border({ width: 1, color: Ui.cardBorder(this.dark) })
-          .shadow({ radius: 14, color: Ui.shadowSoft(this.dark), offsetY: 6 })
-          .backdropBlur(Math.round(this.materialScale() * 20))
-          .clip(true)
+          // 背景透明：外框不再铺玻璃底/模糊，按钮与输入框各自带底色。
+          .backgroundColor(Color.Transparent)
         if (this.selecting && this.selected.length > 0) {
           Button('删除已选 ' + this.selected.length + ' 条').width('100%').height('40vp').fontSize(Ui.fs('13vp', this.fontScale))
             .fontWeight(FontWeight.Medium).fontColor(Ui.danger(this.dark))
@@ -483,3 +469,4 @@ export struct PlayHistoryPage {
     });
   }
 }
+

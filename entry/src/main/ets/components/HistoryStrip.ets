@@ -24,6 +24,8 @@ export struct HistoryStrip {
   @StorageLink('darkTheme') private darkTheme: boolean = true;
   @StorageLink('historyVersion') @Watch('onHistoryChanged') private historyVersion: number = 0;
   @State private records: WatchRecord[] = [];
+  /** 首页为空时整块隐藏；「我的」保持空态提示。 */
+  @Prop hideWhenEmpty: boolean = false;
   private scroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
@@ -79,7 +81,9 @@ export struct HistoryStrip {
 
   private openAll(): void {
     try {
-      AppState.go('history');
+      // 跳到「管理」页并默认选中「观看历史」Tab（索引 0）。
+      AppStorage.setOrCreate<number>('manageInitialTab', 0);
+      AppState.go('manage');
     } catch (error) {
       Logger.warn('HISTORY_STRIP', '打开播放历史失败：' + String(error));
     }
@@ -100,9 +104,9 @@ export struct HistoryStrip {
       if (this.records.length === 0) {
         Row({ space: '10vp' }) {
           Column() {
-            Text('▶')
-              .fontSize(Ui.fs('14vp', this.fontScale))
-              .fontColor(Ui.inkFaint(this.darkTheme))
+            SymbolGlyph($r('sys.symbol.play_circle'))
+              .fontSize(Ui.fs('20vp', this.fontScale))
+              .fontColor([Ui.inkFaint(this.darkTheme)])
           }
             .width('44vp')
             .height('44vp')
@@ -166,5 +170,10 @@ export struct HistoryStrip {
     }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
+      .visibility(this.hideWhenEmpty && this.records.length === 0 ? Visibility.None : Visibility.Visible)
   }
 }
+
+
+
+

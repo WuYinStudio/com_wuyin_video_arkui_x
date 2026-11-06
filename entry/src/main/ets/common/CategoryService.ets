@@ -1,4 +1,7 @@
-import { http } from '@kit.NetworkKit';
+﻿import { http } from '@kit.NetworkKit';
+import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+import { AppState } from './AppState';
 import { Logger } from './Logger';
 
 export interface CategoryFilters {
@@ -74,7 +77,16 @@ interface CategoryQueryParameter {
 }
 
 // 与搜索业务完全独立；首次加载和分页共用同一组筛选、解析与 yin 转换。
+//
+// 合规说明：分类页**不再内置任何第三方影视信息接口**（原先是 v.baidu.com 的私有接口），
+// 改为读取用户在「设置 > 搜索源管理 > 分类接口地址」里自行填写的地址；
+// 未配置时分类页给出空态提示，不发起任何请求。
 export class CategoryService {
+  /** 用户填写的分类接口地址；空字符串表示未配置。 */
+  private static base: string = '';
+  private static loaded: boolean = false;
+  private static prefs?: preferences.Preferences;
+
   private static endpoint(form: string | null): CategoryEndpoint {
     switch (form) {
       case '电视剧':
@@ -87,7 +99,6 @@ export class CategoryService {
         return { address: 'http://v.baidu.com/commonapi/movie2level/', channel: 'movie' };
     }
   }
-
   private static appendFilter(parameters: CategoryQueryParameter[], key: string, value: string): void {
     const effectiveValue: string = value.trim();
     // “全部”和空选项不创建 query key，也不保留 actor=/prop= 等空参数。
@@ -352,3 +363,7 @@ export class CategoryService {
     }
   }
 }
+
+
+
+

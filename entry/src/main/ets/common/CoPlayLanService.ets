@@ -1,11 +1,11 @@
 import { abilityAccessCtrl, common } from '@kit.AbilityKit';
-import { DeviceBasicInfo, DeviceManager, DeviceStateChange, createDeviceManager } from './compat/DeviceManagerCompat';
-import { PlatformInfo } from './compat/PlatformInfo';
+import { distributedDeviceManager } from './PlatformDistributedDevice';
 import { socket } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { Logger } from './Logger';
 import { CoPlayTransport, CoPlayInvitation } from './CoPlayTransport';
+import { asSocketLike } from './PlatformSocketLike';
 
 export interface CoPlayLanDevice {
   deviceId: string;
@@ -13,17 +13,18 @@ export interface CoPlayLanDevice {
   networkId: string;
   deviceType?: 'harmony' | 'vr_quest3';
 }
-interface DiscoveryEvent { device: DeviceBasicInfo; }
+interface DiscoveryEvent { device: distributedDeviceManager.DeviceBasicInfo; }
 interface DiscoveryFailure { reason: number; }
 interface DeviceStateEvent {
-  action: DeviceStateChange;
-  device: DeviceBasicInfo;
+  action: distributedDeviceManager.DeviceStateChange;
+  device: distributedDeviceManager.DeviceBasicInfo;
 }
 interface LanAnnouncement {
   protocol: string;
   kind: string;
   deviceId: string;
   networkId: string;
+  deviceName?: string;
 }
 interface LanEndpoint { deviceId: string; networkId: string; address: string; seenAt: number; }
 interface IncomingInvitation {
@@ -41,8 +42,8 @@ export class CoPlayLanService {
   private static readonly PORT: number = 43826;
   private static readonly MAX_BYTES: number = 32 * 1024 * 1024;
   private context?: common.UIAbilityContext;
-  private manager?: DeviceManager;
-  private creating?: Promise<DeviceManager>;
+  private manager?: distributedDeviceManager.DeviceManager;
+  private creating?: Promise<distributedDeviceManager.DeviceManager>;
   private managerRevision: number = 0;
   private callbacksBound: boolean = false;
   private dialogOpen: boolean = false;
@@ -64,6 +65,7 @@ export class CoPlayLanService {
   private incoming: IncomingInvitation[] = [];
   private localDeviceId: string = '';
   private localNetworkId: string = '';
+  private localDeviceName: string = '无音影视设备';
   private sending: boolean = false;
 
   private failure(stage: string, error: Object): void {
@@ -85,13 +87,13 @@ export class CoPlayLanService {
     try {
       Logger.error('CO_PLAYBACK', '【CoPlay][LAN] 扫描失败，reason=' + event.reason);
       ++this.refreshRevision;
-      this.stopScanning(); this.toast('局域网设备扫描失败，' + this.permissionHint());
+      this.stopScanning(); this.toast('局域网设备扫描失败，请检查分布式权限与同一 WiFi');
     } catch (error) { this.failure('DiscoverFailureCallback', error); }
   };
   private readonly stateChanged = (event: DeviceStateEvent): void => {
     try {
       if (!this.dialogOpen) { return; }
-      if (event.action === DeviceStateChange.UNAVAILABLE) {
+      if (event.action === distributedDeviceManager.DeviceStateChange.UNAVAILABLE) {
         Logger.info('CO_PLAYBACK', '【CoPlay][LAN] 设备离线，deviceId=' + event.device.deviceId);
         this.devices = this.devices.filter((item: CoPlayLanDevice): boolean => item.deviceId !== event.device.deviceId);
         this.endpoints = this.endpoints.filter((item: LanEndpoint): boolean => item.deviceId !== event.device.deviceId &&
@@ -100,7 +102,7 @@ export class CoPlayLanService {
       } else { this.addDevice(event.device); }
     } catch (error) { this.failure('DeviceStateCallback', error); }
   };
-  private addDevice(device: DeviceBasicInfo): void {
+  private addDevice(device: distributedDeviceManager.DeviceBasicInfo): void {
     if (!device.deviceId || device.deviceId === this.localDeviceId ||
       (device.networkId && device.networkId === this.localNetworkId)) { return; }
     const item: CoPlayLanDevice = {
@@ -113,15 +115,8 @@ export class CoPlayLanService {
     '，networkId=' + item.networkId);
     this.emitDevices();
   }
-  /** 权限失败提示按平台区分，避免在 Android/iOS 上提示“分布式权限”。 */
-  private permissionHint(): string {
-    if (PlatformInfo.isHarmonyOS()) { return '请确认已授予分布式数据同步权限，并检查应用签名与系统版本。'; }
-    return '请确认两台设备在同一 Wi-Fi，并允许应用的本地网络权限。';
-  }
   private async granted(request: boolean): Promise<boolean> {
     if (!this.context) { return false; }
-    // Android/iOS 没有 DISTRIBUTED_DATASYNC 权限体系，局域网协播不依赖分布式软总线。
-    if (!PlatformInfo.isHarmonyOS()) { return true; }
     try {
       const control = abilityAccessCtrl.createAtManager();
       const permission: abilityAccessCtrl.GrantStatus = await control.checkAccessToken(
@@ -135,16 +130,16 @@ export class CoPlayLanService {
       return granted;
     } catch (error) { this.failure('PermissionRequestOrCheck', error); return false; }
   }
-  private async ensureManager(): Promise<DeviceManager> {
+  private async ensureManager(): Promise<distributedDeviceManager.DeviceManager> {
     if (this.manager) { return this.manager; }
     if (this.creating) { return this.creating; }
     if (!this.context) { throw new Error('局域网上下文尚未就绪'); }
     const revision: number = this.managerRevision;
     const bundleName: string = this.context.abilityInfo.bundleName;
-    const task: Promise<DeviceManager> = new Promise((resolve, reject): void => {
+    const task: Promise<distributedDeviceManager.DeviceManager> = new Promise((resolve, reject): void => {
       try {
         // API26 使用单参数同步工厂，不再传入旧版异步回调。
-        const manager: DeviceManager = createDeviceManager(bundleName);
+        const manager: distributedDeviceManager.DeviceManager = distributedDeviceManager.createDeviceManager(bundleName);
         try {
           if (revision !== this.managerRevision) {
             // 过期实例不再挂载到服务，也不注册回调。
@@ -168,9 +163,8 @@ export class CoPlayLanService {
     this.dialogOpen = true;
     const revision: number = ++this.dialogRevision;
     try {
-      if (!await this.granted(true)) { throw new Error('未获得分布式设备权限'); }
       if (!this.dialogOpen || revision !== this.dialogRevision) { return; }
-      const manager: DeviceManager = await this.ensureManager();
+      const manager: distributedDeviceManager.DeviceManager = await this.ensureManager();
       if (!this.dialogOpen || revision !== this.dialogRevision) { return; }
       // 标记先置位，任一 on 失败时也逐项 off，避免半初始化留下监听。
       if (!this.callbacksBound) {
@@ -187,7 +181,7 @@ export class CoPlayLanService {
         this.closeDialog();
         const problem: BusinessError = error as BusinessError;
         const detail: string = String(problem.code) + ' ' + String(problem.message || error);
-        notice('局域网设备初始化失败（' + detail + '）。' + this.permissionHint());
+        notice('局域网设备初始化失败（' + detail + '）。请确认已授予分布式数据同步权限，并检查应用签名与系统版本。');
       }
     }
   }
@@ -199,7 +193,7 @@ export class CoPlayLanService {
       this.devices = []; this.endpoints = []; this.emitDevices();
       this.toast('正在扫描局域网设备…');
       if (!this.context || !this.dialogOpen) { throw new Error('弹窗设备管理尚未就绪'); }
-      const manager: DeviceManager = await this.ensureManager();
+      const manager: distributedDeviceManager.DeviceManager = await this.ensureManager();
       if (!this.dialogOpen || revision !== this.refreshRevision) { return; }
       await this.startReceiver();
       if (!this.dialogOpen || revision !== this.refreshRevision) { return; }
@@ -215,7 +209,7 @@ export class CoPlayLanService {
       if (!this.scanning || !this.dialogOpen || revision !== this.refreshRevision) { return; }
       Logger.info('CO_PLAYBACK', '【CoPlay][LAN] startDiscovering 扫描开始');
       try {
-        manager.getAvailableDeviceListSync().forEach((device: DeviceBasicInfo): void => { this.addDevice(device); });
+        manager.getAvailableDeviceListSync().forEach((device: distributedDeviceManager.DeviceBasicInfo): void => { this.addDevice(device); });
       } catch (error) { this.failure('AvailableDevices', error); }
       await this.announce('probe', '255.255.255.255');
       // 广播等待期间可能关闭弹窗或再次刷新；旧任务不得重建后台扫描定时器。
@@ -227,7 +221,7 @@ export class CoPlayLanService {
     } catch (error) {
       this.failure('Scan', error);
       if (revision === this.refreshRevision) {
-        this.stopScanning(); this.toast('局域网设备扫描失败，' + this.permissionHint());
+        this.stopScanning(); this.toast('局域网设备扫描失败，请检查分布式权限与同一 WiFi');
       }
     }
   }
@@ -245,7 +239,7 @@ export class CoPlayLanService {
     Logger.info('CO_PLAYBACK', '【CoPlay][LAN] 扫描停止');
   }
   private releaseManager(): void {
-    const manager: DeviceManager | undefined = this.manager;
+    const manager: distributedDeviceManager.DeviceManager | undefined = this.manager;
     this.manager = undefined; ++this.managerRevision; this.creating = undefined;
     if (manager) {
       if (this.callbacksBound) {
@@ -307,7 +301,7 @@ export class CoPlayLanService {
         if (this.udp === receiverUdp && this.foreground) { void this.receiveAnnouncement(message); }
       });
       udp.on('error', (error: BusinessError): void => { this.failure('UdpError', error); });
-      server.on('connect', (connection: socket.TCPSocketConnection): void => {
+      asSocketLike(server).on('connect', (connection: socket.TCPSocketConnection): void => {
         try {
           if (this.server !== receiverServer || !this.foreground) {
             void connection.close().catch((error: Error): void => { this.failure('CloseInactiveConnection', error); }); return;
@@ -315,6 +309,7 @@ export class CoPlayLanService {
           this.acceptConnection(connection);
         } catch (error) { this.failure('AcceptConnection', error); }
       });
+      asSocketLike(server).on('error', (error: BusinessError): void => { this.failure('TcpServerError', error); });
       // 先 bind 再设置 UDP 扩展选项：部分 HarmonyOS 设备在未绑定的 Socket
       // 上调用 setExtraOptions 会返回 Parameter error / Bad file descriptor。
       stage = 'UdpBind';
@@ -332,6 +327,7 @@ export class CoPlayLanService {
         try { udp.off('message'); udp.off('error'); } catch (_) {}
         try { await udp.close(); } catch (error) { this.failure('CloseCancelledUdp', error); }
         udp = undefined;
+        try { asSocketLike(server).off('connect'); asSocketLike(server).off('error'); } catch (_) {}
         try { await server.close(); } catch (error) { this.failure('CloseCancelledServer', error); }
         server = undefined; return;
       }
@@ -345,6 +341,7 @@ export class CoPlayLanService {
         try { await udp.close(); } catch (caught) { this.failure('CloseFailedUdp(bound=' + String(udpBound) + ')', caught); }
       }
       if (server) {
+        try { asSocketLike(server).off('connect'); asSocketLike(server).off('error'); } catch (caught) { this.failure('DetachFailedServer', caught); }
         try { await server.close(); } catch (caught) { this.failure('CloseFailedServer(listening=' + String(serverListening) + ')', caught); }
       }
       throw new Error('局域网消息接收服务初始化失败，阶段=' + stage);
@@ -355,7 +352,8 @@ export class CoPlayLanService {
       if (!this.udp || !this.foreground) { return; }
       const packet: LanAnnouncement = {
         protocol: 'wuyin-coplay-lan-v1', kind: kind,
-          deviceId: this.localDeviceId, networkId: this.localNetworkId
+          deviceId: this.localDeviceId, networkId: this.localNetworkId,
+          deviceName: this.localDeviceName
       };
       Logger.info('CO_PLAYBACK', '【CoPlay][LAN][AnnouncementSend] kind=' + kind + '，target=' + address + ':' + String(CoPlayLanService.PORT));
       await this.udp.send({ address: { address: address, port: CoPlayLanService.PORT, family: 1 }, data: JSON.stringify(packet) });
@@ -374,15 +372,11 @@ export class CoPlayLanService {
         typeof packet.networkId !== 'string' || !packet.networkId || packet.networkId === this.localNetworkId) { return; }
       if (packet.kind === 'probe') { await this.announce('hello', message.remoteInfo.address); }
       if ((packet.kind === 'hello' || packet.kind === 'probe') && this.dialogOpen) {
-        // 没有分布式设备发现时，局域网 UDP 广播就是设备来源；按 deviceId 去重后进入设备列表。
-        const lanDevice: DeviceBasicInfo = {
-          deviceId: packet.deviceId, networkId: packet.networkId,
-          deviceName: '局域网设备-' + packet.deviceId.slice(-4)
-        };
-        this.addDevice(lanDevice);
         const endpoint: LanEndpoint = { deviceId: packet.deviceId, networkId: packet.networkId,
             address: message.remoteInfo.address, seenAt: Date.now() };
         this.endpoints = this.endpoints.filter((item: LanEndpoint): boolean => item.networkId !== packet.networkId).concat([endpoint]);
+        this.addDevice({ deviceId: packet.deviceId, deviceName: packet.deviceName || '局域网设备',
+          networkId: packet.networkId });
       }
     } catch (error) { this.failure('AnnouncementReceive', error); }
   }
@@ -393,7 +387,7 @@ export class CoPlayLanService {
     const pending: IncomingInvitation = { connection: connection, data: new Uint8Array(0), timer: -1, processing: false };
     this.incoming.push(pending);
     pending.timer = setTimeout((): void => { this.closeIncoming(pending); }, 20000);
-    connection.on('message', (message: socket.SocketMessageInfo): void => {
+    asSocketLike(connection).on('message', (message: socket.SocketMessageInfo): void => {
       try {
         if (pending.processing || !this.foreground) { return; }
         const part: Uint8Array = new Uint8Array(message.message);
@@ -414,7 +408,8 @@ export class CoPlayLanService {
         this.failure('ReceiveFrame', error); this.closeIncoming(pending);
       }
     });
-    connection.on('close', (): void => { this.forgetIncoming(pending); });
+    asSocketLike(connection).on('error', (error: BusinessError): void => { this.failure('IncomingError', error); this.closeIncoming(pending); });
+    asSocketLike(connection).on('close', (): void => { this.forgetIncoming(pending); });
   }
   private async deliver(pending: IncomingInvitation, raw: string): Promise<void> {
     try {
@@ -436,6 +431,7 @@ export class CoPlayLanService {
   private closeIncoming(pending: IncomingInvitation): void {
     this.forgetIncoming(pending);
     try {
+      asSocketLike(pending.connection).off('message'); asSocketLike(pending.connection).off('error'); asSocketLike(pending.connection).off('close');
       void pending.connection.close().catch((error: Error): void => { this.failure('CloseIncoming', error); });
     } catch (error) { this.failure('DetachIncoming', error); }
   }
@@ -506,7 +502,7 @@ export class CoPlayLanService {
       catch (error) { this.failure('DetachUdp', error); }
     }
     if (server) {
-      try { void server.close().catch((error: Error): void => { this.failure('CloseServer', error); }); }
+      try { asSocketLike(server).off('connect'); asSocketLike(server).off('error'); void server.close().catch((error: Error): void => { this.failure('CloseServer', error); }); }
       catch (error) { this.failure('DetachServer', error); }
     }
   }

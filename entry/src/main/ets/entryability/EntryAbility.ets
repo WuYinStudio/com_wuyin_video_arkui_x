@@ -4,10 +4,18 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { Logger } from '../common/Logger';
+
 import { AppConfig } from '../common/AppConfig';
+import { ImageHostService } from '../common/ImageHostService';
+import { EmojiStore } from '../common/EmojiStore';
+import { VoiceStore } from '../common/VoiceStore';
+import { FrameRateService } from '../common/FrameRateService';
+import { DockStyleStore } from '../common/DockStyleStore';
 import { NavTabs } from '../common/NavTabs';
 import { SocialStore } from '../common/SocialStore';
 import { ThemeService } from '../common/ThemeService';
+import { WallpaperService } from '../common/WallpaperService';
+import { AdBlockService } from '../common/AdBlockService';
 import { AppState } from '../common/AppState';
 import { AgreementService } from '../common/AgreementService';
 import { ChatAlertService } from '../common/ChatAlertService';
@@ -18,8 +26,11 @@ import { CoPlayShareService } from '../common/CoPlayShareService';
 import { CoPlayLanService } from '../common/CoPlayLanService';
 import { CoPlayTransport, CoPlayInvitation } from '../common/CoPlayTransport';
 import { parseWzlj, WzljEpisode } from '../common/WzljParser';
-import { TencentSDK } from '../common/TencentSdkService';
-import { wantAction, wantUri } from '../common/compat/WantCompat';
+
+class CrossWant extends Want {
+  uri?: string;
+  action?: string;
+}
 
 interface SessionVideoInfo {
   yhm: string;
@@ -106,15 +117,13 @@ export default class EntryAbility extends UIAbility {
 
   /** 记录 wuyinvideo:// 深链，交给界面路由（音频/视频/通知/下载/帖子）。 */
   private captureDeepLink(want: Want): void {
-    const uri: string = wantUri(want) || '';
+    const uri: string = (want as CrossWant).uri !== undefined ? String((want as CrossWant).uri) : '';
     if (uri.indexOf('wuyinvideo://') !== 0) { return; }
     AppStorage.setOrCreate<string>('deepLinkUri', uri);
     Logger.info('SCHEME', '收到深链：' + uri);
   }
 
   onCreate(want: Want): void {
-    // 在 Ability 创建时传入应用标识，不再等到窗口创建后无 appId 地初始化 QQ SDK。
-    void this.initializeQQOpenSdk();
     // 分享接收使用真实的 UIAbility Want 回调，不注册不存在的华为分享事件。
     try { void this.captureSharedWant(want, '冷启动'); }
     catch (error) { Logger.error('SCHEME', '读取冷启动分享链接失败：' + String(error)); }
@@ -454,7 +463,7 @@ export default class EntryAbility extends UIAbility {
       const raw = parameters ? parameters[shareKey] : undefined;
       const keys: string[] = parameters ? Object.keys(parameters) : [];
       if (raw === undefined) {
-        if (wantAction(want) === 'ohos.want.action.sendData') {
+        if ((want as CrossWant).action === 'ohos.want.action.sendData') {
           CoPlayInviteHandoff.logText('ReceiveWant', '分享入口参数键名（未收到指定share_data键）', JSON.stringify(keys));
           for (const key of keys) {
             if (key !== shareKey && key.toLowerCase() === shareKey) {
@@ -566,26 +575,26 @@ export default class EntryAbility extends UIAbility {
   private async captureSharedWant(want: Want, source: string): Promise<void> {
     const revision: number = ++this.shareRevision;
     try {
-      const uri: string = wantUri(want) || '';
+      const uri: string = (want as CrossWant).uri || '';
       // 从文件管理器、聊天软件等通过“打开方式”传入的协播同步分享 TXT，
       // 读取完整文本后复用同一套协播 JSON 校验、缓存和播放器入会流程。
-      if (wantAction(want) === 'ohos.want.action.viewData' && /\.txt(?:[?#].*)?$/i.test(uri)) {
+      if ((want as CrossWant).action === 'ohos.want.action.viewData' && /\.txt(?:[?#].*)?$/i.test(uri)) {
         const rawText: string = await this.readCoPlayTextFile(uri);
         if (revision !== this.shareRevision) { return; }
         const normalizedParameters: Record<string, Object> = {};
         normalizedParameters['ohos.extra.param.key.share_data'] = rawText;
-        const normalizedWant: Want = { action: 'ohos.want.action.sendData', uri: uri, parameters: normalizedParameters };
+        const normalizedWant: CrossWant = { action: 'ohos.want.action.sendData', uri: uri, parameters: normalizedParameters };
         Logger.info('MEDIA_SESSION', '外部打开 TXT 已转入协播分享解析流程，来源=' + source);
         await this.captureSharedWant(normalizedWant, source + '-TXT');
         return;
       }
       // 目标应用被 ShareKit 直接唤起时，分享数据可能封装在 Want 内部，未暴露为 share_data 字符串。
       // 官方 getSharedData(want) 负责解出 SharedRecord；随后才把 record.content 交给业务 JSON 解析器。
-      let receiveWant: Want = want;
+      let receiveWant: CrossWant = want as CrossWant;
       const shareKey: string = 'ohos.extra.param.key.share_data';
       const shareParameters = want.parameters;
       const directRaw = shareParameters ? shareParameters[shareKey] : undefined;
-      if (wantAction(want) === 'ohos.want.action.sendData' && typeof directRaw !== 'string') {
+      if ((want as CrossWant).action === 'ohos.want.action.sendData' && typeof directRaw !== 'string') {
         const sharedRaw: string | undefined = await CoPlayShareService.readRaw(want);
         if (revision !== this.shareRevision) { return; }
         if (typeof sharedRaw === 'string' && sharedRaw.trim().length > 0) {
@@ -596,7 +605,7 @@ export default class EntryAbility extends UIAbility {
             }
           }
           normalizedParameters[shareKey] = sharedRaw;
-          receiveWant = { action: wantAction(want), uri: wantUri(want), parameters: normalizedParameters };
+          receiveWant = { action: (want as CrossWant).action, uri: (want as CrossWant).uri, parameters: normalizedParameters };
           CoPlayInviteHandoff.logText('ReceiveShare', 'UIAbility 经 ShareKit 提取的原始分享文本', sharedRaw);
         } else {
           Logger.warn('CO_PLAYBACK', '【CoPlay][ReceiveShare] UIAbility 被 sendData 唤起，但 getSharedData 未返回可用文本');
@@ -604,7 +613,7 @@ export default class EntryAbility extends UIAbility {
       }
       let invite: MediaSessionInvite | undefined = this.readHuaweiShareInvite(receiveWant);
       // 系统分享缺少指定 key 时直接结束，不猜测其他载荷，也不重放尚在等待协议的旧邀请。
-      if (!invite && wantAction(want) === 'ohos.want.action.sendData') {
+      if (!invite && (want as CrossWant).action === 'ohos.want.action.sendData') {
         this.pendingSessionInvite = undefined;
         this.pendingShare = undefined;
         this.pendingShareError = '';
@@ -660,25 +669,24 @@ export default class EntryAbility extends UIAbility {
     void this.initializeWindow(windowStage);
   }
 
-  private async initializeQQOpenSdk(): Promise<void> {
-    try {
-      await TencentSDK.initializeQQOpenSdk(this.context);
-      Logger.info('LOGIN_SDK', 'EntryAbility已完成QQ Open SDK初始化，appId=102091604');
-    } catch (_) {
-      // 不输出 SDK 原始异常，避免授权信息进入日志；初始化失败不能阻断页面加载。
-      Logger.error('LOGIN_SDK', 'EntryAbility初始化QQ Open SDK失败，请检查SDK依赖、appId及querySchemes配置');
-    }
-  }
 
   private async initializeWindow(windowStage: window.WindowStage): Promise<void> {
     // 先恢复 AppConfig 与 AppState 的持久化配置，再创建页面。
     try {
       if (!this.configReady) {
         await AppConfig.init(this.context);
+        await ImageHostService.init(this.context);
+        await EmojiStore.init(this.context);
+      await VoiceStore.init(this.context);
+      await FrameRateService.init(this.context);
+      await DockStyleStore.init(this.context);
         await AppState.init(this.context);
         await NavTabs.init(this.context);
         await SocialStore.init(this.context);
         await ThemeService.init(this.context);
+        // 本地导入背景（图片 / GIF / 循环视频）与主题共用同一套全局背景切换逻辑。
+        await WallpaperService.init(this.context);
+        await AdBlockService.init(this.context);
         ChatAlertService.init();
         this.configReady = true;
       }
@@ -901,3 +909,4 @@ export default class EntryAbility extends UIAbility {
     } catch (_) { Logger.error('SCHEME', '检查协议或交接分享参数失败'); }
   }
 }
+

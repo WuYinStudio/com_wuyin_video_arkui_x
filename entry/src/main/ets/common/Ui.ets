@@ -53,23 +53,40 @@ export class Ui {
   static isWide(width: number): boolean {
     return Number.isFinite(width) && width >= 1000;
   }
+  /** PC / 2in1 断点。 */
+  static isDesktop(width: number): boolean {
+    return Number.isFinite(width) && width >= 1280;
+  }
+  /** 智慧屏 / 大屏 TV 断点。 */
+  static isTv(width: number): boolean {
+    return Number.isFinite(width) && width >= 1920;
+  }
   static isCompact(width: number): boolean {
     return !Number.isFinite(width) || width < 380;
   }
-  /** 页面左右留白：手机 16，折叠/平板 24，宽屏 32。 */
+  /** 页面左右留白：手机 16，折叠/平板 24，宽屏 32，PC 40，智慧屏 48。 */
   static gutter(width: number): number {
     if (!Number.isFinite(width)) { return 16; }
+    if (width >= 1920) { return 48; }
+    if (width >= 1280) { return 40; }
     if (width >= 1000) { return 32; }
     if (width >= 600) { return 24; }
     return width < 360 ? 14 : 16;
   }
   /** 内容最大宽度：宽屏居中，避免大屏上内容被拉成超宽行。 */
   static contentMax(width: number): number {
-    return Ui.isWide(width) ? 1180 : width;
+    if (!Number.isFinite(width)) { return width; }
+    if (width >= 1920) { return 1520; }
+    if (width >= 1280) { return 1360; }
+    if (width >= 1000) { return 1180; }
+    return width;
   }
-  /** 影片网格列数。 */
+  /** 影片网格列数：手机/平板保持原值，PC 与智慧屏增加列数。 */
   static columns(width: number): number {
-    if (width >= 1180) { return 4; }
+    if (!Number.isFinite(width)) { return 1; }
+    if (width >= 1800) { return 6; }
+    if (width >= 1400) { return 5; }
+    if (width >= 1100) { return 4; }
     if (width >= 900) { return 3; }
     if (width >= 600) { return 2; }
     return 1;
@@ -128,20 +145,30 @@ export class Ui {
 
   // ---------- 背景 ----------
   /** 页面底色：优先使用自定义背景，其次使用当前主题底色。 */
-  static pageBg(dark: boolean): string { return ThemeService.pageBg(dark); }
-  static pageBgAlt(dark: boolean): string { return ThemeService.pageBgAlt(dark); }
+  static pageBg(dark: boolean): string {
+    const wall: string = String(AppStorage.get<string>('wallpaperId') || '');
+    if (wall.length > 0) { return ThemeService.pageBg(dark); }
+    return dark ? '#000000' : '#FBFAF7';
+  }
+  static pageBgAlt(dark: boolean): string {
+    const wall: string = String(AppStorage.get<string>('wallpaperId') || '');
+    if (wall.length > 0) { return ThemeService.pageBgAlt(dark); }
+    return dark ? '#000000' : '#F7F5EF';
+  }
 
-  /** 极光光晕（radialGradient 用），alpha 已内置。 */
-  static auroraViolet(dark: boolean): string { return dark ? '#7A5CFF66' : '#8B7BFF3D'; }
-  static auroraCyan(dark: boolean): string { return dark ? '#00C2FF4D' : '#41C6FF33'; }
-  static auroraRose(dark: boolean): string { return dark ? '#FF4D7D33' : '#FF86A629'; }
+  /** 极光光晕（radialGradient 用），alpha 已内置；浅色模式保持米白纯净。 */
+  static auroraViolet(dark: boolean): string { return dark ? '#7A5CFF66' : '#00000000'; }
+  static auroraCyan(dark: boolean): string { return dark ? '#00C2FF4D' : '#00000000'; }
+  static auroraRose(dark: boolean): string { return dark ? '#FF4D7D33' : '#00000000'; }
   static auroraFade(): string { return '#00000000'; }
 
   // ---------- 文本 ----------
-  static ink(dark: boolean): string { return dark ? '#F4F7FF' : '#0C1728'; }
-  static inkSoft(dark: boolean): string { return dark ? '#A7B4C9' : '#4F6178'; }
-  static inkFaint(dark: boolean): string { return dark ? '#6E7E95' : '#8493A6'; }
+  static ink(dark: boolean): string { return dark ? '#F4F7FF' : '#1C1C1C'; }
+  static inkSoft(dark: boolean): string { return dark ? '#A7B4C9' : '#757575'; }
+  static inkFaint(dark: boolean): string { return dark ? '#6E7E95' : '#9A9A9A'; }
   static inkOnMedia(dark: boolean): string { return '#FFFFFF'; }
+  /** 图标色跟随当前主题；默认主题为浅金 #CFB066。 */
+  static icon(dark: boolean): string { return ThemeService.accent(dark); }
 
   // ---------- 主色 ----------
   static accent(dark: boolean): string { return ThemeService.accent(dark); }
@@ -155,27 +182,27 @@ export class Ui {
 
   // ---------- 液态玻璃 ----------
   /** 玻璃底色：深色是"墨玻璃"，浅色是"乳白玻璃"。 */
-  static glassTint(dark: boolean): string { return dark ? '#8C141A26' : '#A6FFFFFF'; }
-  static glassTintStrong(dark: boolean): string { return dark ? '#BF181F2E' : '#D9FFFFFF'; }
-  static glassTintSoft(dark: boolean): string { return dark ? '#66101620' : '#8CFFFFFF'; }
+  static glassTint(dark: boolean): string { return dark ? '#8C141A26' : '#A6FBFAF7'; }
+  static glassTintStrong(dark: boolean): string { return dark ? '#BF181F2E' : '#D9FBFAF7'; }
+  static glassTintSoft(dark: boolean): string { return dark ? '#66101620' : '#8CFBFAF7'; }
   /** 玻璃描边：高光在上、侧壁略暗，制造厚度感。浅色模式用极淡的墨蓝细边，保证白底上也有轮廓。 */
-  static glassRing(dark: boolean): string { return dark ? '#2EFFFFFF' : '#1A173156'; }
-  static glassRingSoft(dark: boolean): string { return dark ? '#1AFFFFFF' : '#12173156'; }
+  static glassRing(dark: boolean): string { return dark ? '#2EFFFFFF' : '#0D000000'; }
+  static glassRingSoft(dark: boolean): string { return dark ? '#1AFFFFFF' : '#0D000000'; }
   static glassRingAccent(dark: boolean): string { return ThemeService.accentRing(dark); }
   static glassSheenTop(dark: boolean): string { return dark ? '#2BFFFFFF' : '#F2FFFFFF'; }
   static glassSheenMid(dark: boolean): string { return dark ? '#0AFFFFFF' : '#33FFFFFF'; }
   static glassSheenClear(): string { return '#00FFFFFF'; }
   /** 底栏/搜索条下方的投影。 */
-  static shadow(dark: boolean): string { return dark ? '#A6000000' : '#26375199'; }
-  static shadowSoft(dark: boolean): string { return dark ? '#66000000' : '#17375199'; }
+  static shadow(dark: boolean): string { return dark ? '#A6000000' : '#0F000000'; }
+  static shadowSoft(dark: boolean): string { return dark ? '#66000000' : '#0F000000'; }
 
   // ---------- 卡片 ----------
-  static card(dark: boolean): string { return dark ? '#0DFFFFFF' : '#D9FFFFFF'; }
-  static cardTop(dark: boolean): string { return dark ? '#14FFFFFF' : '#F2FFFFFF'; }
-  static cardBottom(dark: boolean): string { return dark ? '#08FFFFFF' : '#CCFFFFFF'; }
-  static cardBorder(dark: boolean): string { return dark ? '#1AFFFFFF' : '#14173156'; }
-  static cardBorderSoft(dark: boolean): string { return dark ? '#10FFFFFF' : '#0F173156'; }
-  static divider(dark: boolean): string { return dark ? '#14FFFFFF' : '#14173156'; }
+  static card(dark: boolean): string { return dark ? '#0DFFFFFF' : '#FBFAF7'; }
+  static cardTop(dark: boolean): string { return dark ? '#14FFFFFF' : '#FBFAF7'; }
+  static cardBottom(dark: boolean): string { return dark ? '#08FFFFFF' : '#F7F5EF'; }
+  static cardBorder(dark: boolean): string { return dark ? '#1AFFFFFF' : '#0D000000'; }
+  static cardBorderSoft(dark: boolean): string { return dark ? '#10FFFFFF' : '#0D000000'; }
+  static divider(dark: boolean): string { return dark ? '#14FFFFFF' : '#0D000000'; }
 
   // ---------- 功能色 ----------
   static danger(dark: boolean): string { return dark ? '#FF8A9B' : '#D5314C'; }
@@ -197,8 +224,11 @@ export class Ui {
 
   /** 底栏 / 底栏上方渐进模糊带 / 手势条的总占位高度（内嵌业务页的列表末尾避让）。 */
   static navBarHeight(width: number, viewportHeight: number, scale: number = 1): number {
-    const landscape: boolean = viewportHeight > 0 && width > viewportHeight * 1.15;
-    const base: number = landscape ? 62 : (Ui.isTablet(width) ? 84 : 70);
+    let base: number = 70;
+    if (Ui.isTv(width)) { base = 76; }
+    else if (Ui.isDesktop(width)) { base = 72; }
+    else if (Ui.isTablet(width)) { base = 80; }
+    else if (viewportHeight > 0 && width > viewportHeight * 1.15) { base = 62; }
     return Math.round(base * Ui.dockScale(scale));
   }
   static navStripHeight(width: number, viewportHeight: number, scale: number = 1): number {

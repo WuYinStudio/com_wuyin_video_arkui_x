@@ -361,6 +361,8 @@ export class AccountApi {
     }
     return list;
   }
+
+
 }
 
 /** 排行榜条目（admin_rank.php）。 */

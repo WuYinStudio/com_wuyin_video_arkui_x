@@ -1,10 +1,18 @@
-import { http, socket } from '@kit.NetworkKit';
+﻿import { http, socket } from '@kit.NetworkKit';
+
+/** 设备上报的播放进度（秒）。 */
+export interface CastPosition {
+  position: number;
+  duration: number;
+}
 
 export interface CastDevice {
   id: string;
   name: string;
   location: string;
   controlUrl: string;
+  /** RenderingControl 控制地址（调音量/静音用），部分设备不提供。 */
+  renderingUrl?: string;
 }
 
 // DLNA/UPnP AVTransport：仅在局域网发现设备，不依赖外部投屏服务。
@@ -76,8 +84,9 @@ export class CastService {
       const root = base.substring(0, base.lastIndexOf('/') + 1);
       const controlUrl = /^https?:\/\//i.test(control) ? control : control.startsWith('/') ? origin + control : root + control;
       if (this.devices.some((device: CastDevice) => device.controlUrl === controlUrl)) { return; }
-      this.devices.push({ id: controlUrl, name: name.replace(/&amp;/g, '&').replace(/&lt;/g, '<'), location: location, controlUrl: controlUrl });
-      this.onDevices?.(this.devices.slice());
+      const renderingUrl: string = CastService.resolveService(xml, 'RenderingControl', origin, location, root);
+      this.devices.push({ id: controlUrl, name: name.replace(/&amp;/g, '&').replace(/&lt;/g, '<'), location: location,
+        controlUrl: controlUrl, renderingUrl: renderingUrl });
     } catch (_) { /* 忽略无效的 SSDP 响应，继续发现其他设备。 */ }
     finally { this.inspecting = this.inspecting.filter((item: string) => item !== location); }
   }
@@ -102,9 +111,67 @@ export class CastService {
     } finally { request.destroy(); }
   }
 
+  /** 从设备描述里解析指定服务的控制地址（AVTransport / RenderingControl 等）。 */
+  static resolveService(xml: string, service: string, origin: string, location: string, root: string): string {
+    try {
+      const blocks: RegExpMatchArray | null = xml.match(/<service>[\s\S]*?<\/service>/ig);
+      if (blocks === null) { return ''; }
+      for (const block of blocks) {
+        if (block.indexOf('service:' + service + ':1') < 0) { continue; }
+        const control: string = /<controlURL>\s*([^<]+)\s*<\/controlURL>/i.exec(block)?.[1]?.trim() || '';
+        if (control.length === 0) { return ''; }
+        return /^https?:\/\//i.test(control) ? control : (control.startsWith('/') ? origin + control : root + control);
+      }
+    } catch (_) {
+      return '';
+    }
+    return '';
+  }
+
+  /** 把 00:03:21 / 0:03:21.123 / 1234 解析成秒。 */
+  static parseHms(text: string): number {
+    const value: string = (text || '').trim();
+    if (value.length === 0) { return 0; }
+    if (/^\d+(\.\d+)?$/.test(value)) { return Number(value); }
+    const parts: string[] = value.split(':');
+    let seconds: number = 0;
+    for (const part of parts) {
+      seconds = seconds * 60 + (Number(part) || 0);
+    }
+    return Math.max(0, Math.floor(seconds));
+  }
+
+  /** 读取当前播放进度与总时长（AVTransport.GetPositionInfo）。 */
+  async position(device: CastDevice): Promise<CastPosition> {
+    const xml: string = await this.command(device, 'GetPositionInfo', '');
+    const rel: string = /<RelTime>\s*([^<]*)\s*<\/RelTime>/i.exec(xml)?.[1]?.trim() || '';
+    const dur: string = /<TrackDuration>\s*([^<]*)\s*<\/TrackDuration>/i.exec(xml)?.[1]?.trim() || '';
+    const result: CastPosition = { position: CastService.parseHms(rel), duration: CastService.parseHms(dur) };
+    return result;
+  }
+
+  /** RenderingControl 指令（音量/静音）；设备未提供该服务时抛错。 */
+  async commandRendering(device: CastDevice, action: string, body: string): Promise<string> {
+    const controlUrl: string = (device.renderingUrl || '').trim();
+    if (controlUrl.length === 0) { throw new Error('该设备不支持音量控制'); }
+    const request = http.createHttp();
+    const envelope = '<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:' + action + ' xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"><InstanceID>0</InstanceID>' + body + '</u:' + action + '></s:Body></s:Envelope>';
+    try {
+      const result = await request.request(controlUrl, { method: http.RequestMethod.POST,
+          header: { 'Content-Type': 'text/xml; charset="utf-8"', 'SOAPAction': '"urn:schemas-upnp-org:service:RenderingControl:1#' + action + '"' },
+          extraData: envelope, connectTimeout: 4000, readTimeout: 4000 });
+      if (result.responseCode !== 200 || /<\s*(?:\w+:)?Fault[\s>]/i.test(String(result.result))) { throw new Error('UPnP ' + result.responseCode); }
+      return String(result.result);
+    } finally { request.destroy(); }
+  }
+
   static escape(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
   }
 
   close(): void { this.closed = true; this.stopSearch(); this.onDevices = undefined; this.onSearchEnd = undefined; }
 }
+
+
+
+

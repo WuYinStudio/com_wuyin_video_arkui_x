@@ -100,7 +100,7 @@ export class CoPlayLanSession {
       Logger.info('CO_PLAYBACK', '【CoPlay][LAN-Session] 主控持续同步端点已启动，sessionId=' + sessionId);
     } catch (error) {
       if (udp) { try { udp.off('message'); udp.off('error'); await udp.close(); } catch (caught) { this.failure('CloseHostProbe', caught); } }
-      if (server) { try { await server.close(); } catch (caught) { this.failure('CloseHostServer', caught); } }
+      if (server) { try { server.off('connect'); server.off('error'); await server.close(); } catch (caught) { this.failure('CloseHostServer', caught); } }
       this.failure('StartHost', error);
       throw new Error('局域网持续同步通道初始化失败');
     }
@@ -274,10 +274,12 @@ export class CoPlayLanSession {
     peer.data = new Uint8Array(0);
     try {
       if (peer.incoming) {
-            void peer.incoming.close().catch((error: Error): void => { this.failure('ClosePeer', error); });
+        peer.incoming.off('message'); peer.incoming.off('error'); peer.incoming.off('close');
+        void peer.incoming.close().catch((error: Error): void => { this.failure('ClosePeer', error); });
       }
       if (peer.outgoing) {
-            void peer.outgoing.close().catch((error: Error): void => { this.failure('CloseClient', error); });
+        peer.outgoing.off('message'); peer.outgoing.off('error'); peer.outgoing.off('close');
+        void peer.outgoing.close().catch((error: Error): void => { this.failure('CloseClient', error); });
       }
     } catch (error) { this.failure('DetachPeer', error); }
   }
@@ -304,7 +306,7 @@ export class CoPlayLanSession {
       if (timer !== -1) { clearTimeout(timer); }
       peers.forEach((peer: SessionPeer): void => { this.dropPeer(peer); });
       if (udp) { try { udp.off('message'); udp.off('error'); await udp.close(); } catch (error) { this.failure('CloseProbe', error); } }
-      if (server) { try { await server.close(); } catch (error) { this.failure('CloseServer', error); } }
+      if (server) { try { server.off('connect'); server.off('error'); await server.close(); } catch (error) { this.failure('CloseServer', error); } }
     }
   }
 }

@@ -2,9 +2,9 @@
 	"app":	{
 		"bundleName":	"com.wuyin.video",
 		"vendor":	"无音工作室",
-		"versionCode":	5010000,
-		"versionName":	"5.1.0",
-		"icon":	"$media:icon",
+		"versionCode":	5010004,
+		"versionName":	"5.1.4",
+		"icon":	"$media:layered_image",
 		"label":	"$string:app_name",
 		"apiReleaseType":	"Release",
 		"compileSdkVersion":	"26.0.0.105",
@@ -19,7 +19,7 @@
 		"bundleType":	"app",
 		"buildMode":	"debug",
 		"debug":	true,
-		"iconId":	16777217,
+		"iconId":	16777220,
 		"labelId":	16777216
 	},
 	"module":	{
@@ -31,7 +31,7 @@
 		"deliveryWithInstall":	true,
 		"installationFree":	false,
 		"pages":	"$profile:main_pages",
-		"querySchemes":	["wuyin"],
+		"querySchemes":	["wuyin", "mqq", "mqqapi", "mqqopensdkapi", "qqopensdk", "tim", "timapi"],
 		"requestPermissions":	[{
 				"name":	"ohos.permission.INTERNET",
 				"reason":	"$string:module_desc",
@@ -39,7 +39,7 @@
 					"abilities":	["EntryAbility"],
 					"when":	"inuse"
 				},
-				"reasonId":	16777220
+				"reasonId":	16777223
 			}, {
 				"name":	"ohos.permission.GET_NETWORK_INFO",
 				"reason":	"$string:module_desc",
@@ -47,7 +47,7 @@
 					"abilities":	["EntryAbility"],
 					"when":	"inuse"
 				},
-				"reasonId":	16777220
+				"reasonId":	16777223
 			}, {
 				"name":	"ohos.permission.DISTRIBUTED_DATASYNC",
 				"reason":	"$string:module_desc",
@@ -55,18 +55,43 @@
 					"abilities":	["EntryAbility"],
 					"when":	"inuse"
 				},
-				"reasonId":	16777220
+				"reasonId":	16777223
+			}, {
+				"name":	"ohos.permission.CAMERA",
+				"reason":	"$string:module_desc",
+				"usedScene":	{
+					"abilities":	["EntryAbility"],
+					"when":	"inuse"
+				},
+				"reasonId":	16777223
+			}, {
+				"name":	"ohos.permission.MICROPHONE",
+				"reason":	"$string:module_desc",
+				"usedScene":	{
+					"abilities":	["EntryAbility"],
+					"when":	"inuse"
+				},
+				"reasonId":	16777223
+			}, {
+				"name":	"ohos.permission.KEEP_BACKGROUND_RUNNING",
+				"reason":	"$string:module_desc",
+				"usedScene":	{
+					"abilities":	["EntryAbility"],
+					"when":	"inuse"
+				},
+				"reasonId":	16777223
 			}],
 		"abilities":	[{
 				"name":	"EntryAbility",
 				"srcEntry":	"./ets/entryability/EntryAbility.ets",
 				"description":	"$string:EntryAbility_desc",
-				"icon":	"$media:icon",
+				"icon":	"$media:layered_image",
 				"label":	"$string:EntryAbility_label",
 				"startWindowIcon":	"$media:icon",
 				"startWindowBackground":	"$color:start_window_background",
 				"exported":	true,
 				"launchType":	"singleton",
+				"backgroundModes":	["audioPlayback"],
 				"skills":	[{
 						"entities":	["entity.system.home"],
 						"actions":	["ohos.want.action.home"]
@@ -79,6 +104,23 @@
 							}]
 					}, {
 						"actions":	["ohos.want.action.viewData"],
+						"entities":	["entity.system.browsable"],
+						"uris":	[{
+								"scheme":	"wuyinvideo"
+							}]
+					}, {
+						"actions":	["ohos.want.action.viewData"],
+						"uris":	[{
+								"scheme":	"file",
+								"utd":	"general.text",
+								"maxFileSupported":	1
+							}, {
+								"scheme":	"file",
+								"utd":	"general.plain-text",
+								"maxFileSupported":	1
+							}]
+					}, {
+						"actions":	["ohos.want.action.sendData"],
 						"uris":	[{
 								"scheme":	"file",
 								"utd":	"general.text",
@@ -89,16 +131,16 @@
 								"maxFileSupported":	1
 							}]
 					}],
-				"descriptionId":	16777218,
-				"iconId":	16777217,
-				"labelId":	16777219,
-				"startWindowIconId":	16777217,
-				"startWindowBackgroundId":	16777233
+				"descriptionId":	16777221,
+				"iconId":	16777220,
+				"labelId":	16777222,
+				"startWindowIconId":	16777219,
+				"startWindowBackgroundId":	16777236
 			}],
 		"packageName":	"entry",
 		"virtualMachine":	"ark24.0.0.0",
 		"compileMode":	"esmodule",
 		"dependencies":	[],
-		"descriptionId":	16777220
+		"descriptionId":	16777223
 	}
 }

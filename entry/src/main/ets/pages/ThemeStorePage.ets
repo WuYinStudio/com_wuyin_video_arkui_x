@@ -1,6 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
-import { ThemePreset, ThemeService, WallpaperPreset } from '../common/ThemeService';
+import { ThemePreset, ThemeService } from '../common/ThemeService';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassChip } from '../common/UiWidgets';
@@ -43,8 +43,9 @@ struct ThemeStorePage {
   }
 
   private wallpaperName(): string {
-    const wall: WallpaperPreset | undefined = ThemeService.wallpaper();
-    return wall !== undefined ? wall.name : '未设置';
+    // 本地导入的视频 / 动图 / 图片背景同样算作"当前背景"，与内置渐变壁纸共用一套显示逻辑。
+    const name: string = ThemeService.backgroundName();
+    return name.length > 0 ? name : '跟随主题';
   }
 
   private applyTheme(item: ThemePreset): void {

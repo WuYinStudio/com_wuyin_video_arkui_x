@@ -9,6 +9,7 @@ import { SocialStore } from '../common/SocialStore';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, EmptyState, GhostButton, PrimaryButton } from '../common/UiWidgets';
 import { SymbolIcons } from '../common/SymbolIcons';
+import { UserTitles } from '../common/UserTitles';
 
 interface ProfileRouteParams {
   account?: string;
@@ -270,6 +271,15 @@ struct UserProfilePage {
               .fontColor(Ui.ink(this.darkTheme))
               .maxLines(1)
               .layoutWeight(1)
+            // 等级头衔（与聊天室同一套 UserTitles）
+            Text(UserTitles.badgeOf(this.profile.grade, this.account))
+              .fontSize(Ui.fs('9.5vp', this.fontScale))
+              .fontColor(UserTitles.colorOf(this.profile.grade, this.account, this.darkTheme))
+              .height('17vp')
+              .padding({ left: '6vp', right: '6vp' })
+              .borderRadius('8vp')
+              .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+              .maxLines(1)
             if (this.profile.vipTime.length > 0 && this.profile.vipTime !== '已过期') {
               Text('VIP')
                 .fontSize(Ui.fs('9.5vp', this.fontScale)).fontColor(Ui.gold(this.darkTheme))

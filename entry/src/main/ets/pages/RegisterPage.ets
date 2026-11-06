@@ -6,7 +6,6 @@ import { AppConfig } from '../common/AppConfig';
 import { Logger } from '../common/Logger';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 enum MailSendStatus {
   SUCCESS = 'SUCCESS',
@@ -321,7 +320,7 @@ struct RegisterPage {
         Logger.info('REGISTER', '注册成功，已返回上一级并带回账号');
         return;
       }
-      await replaceRoute({ url: 'pages/Index' });
+      await router.pushUrl({ url: 'pages/Index' });
       Logger.info('REGISTER', '注册成功并已回到首页');
     } catch (error) {
       Logger.error('REGISTER', '注册成功后的返回失败：' + this.errorMessage(error));
@@ -336,7 +335,7 @@ struct RegisterPage {
         router.back();
         return;
       }
-      void replaceRoute({ url: 'pages/Index' });
+      void router.pushUrl({ url: 'pages/Index' });
     } catch (error) {
       Logger.error('REGISTER', '返回上一级失败：' + this.errorMessage(error));
     }
@@ -345,7 +344,7 @@ struct RegisterPage {
   onBackPress(): boolean {
     try {
       if (Number(router.getLength()) > 1) { return false; }
-      void replaceRoute({ url: 'pages/Index' });
+      void router.pushUrl({ url: 'pages/Index' });
       return true;
     } catch (error) {
       return false;
@@ -809,6 +808,13 @@ struct RegisterPage {
       }
         .textAlign(TextAlign.Center)
         .width('100%')
+      // 未成年人提示：与隐私政策「对未成年人的保护」一节对应。
+      Text('未满 14 周岁请在监护人陪同下阅读并同意本协议后使用')
+        .fontSize(Ui.fs('11vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.dark))
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .maxLines(2)
     }
       .width('100%')
       .alignItems(HorizontalAlign.Center)

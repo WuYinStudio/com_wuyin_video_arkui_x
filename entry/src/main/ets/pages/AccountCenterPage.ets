@@ -1,15 +1,17 @@
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { router } from '@kit.ArkUI';
-import { AccountApi, FollowEntry } from '../common/AccountApi';
+import { LegalText } from '../common/LegalText';
+import { AccountApi, FollowEntry, RankEntry } from '../common/AccountApi';
 import { AccountStore, RankRow, VipPlan, WalletFlow } from '../common/AccountStore';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession, CommunityUser } from '../common/CommunityApi';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
+import { PlatformBridge } from '../common/PlatformBridge';
 import { SocialStore, FriendItem } from '../common/SocialStore';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, PrimaryButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 /**
  * 账号中心（签到 / 钱包 / VIP / 资料 / 三榜）。
@@ -45,6 +47,8 @@ struct AccountCenterPage {
   @State private rankKind: string = 'money';
   @State private ranks: RankRow[] = [];
   @State private nickname: string = '';
+  /** 注销账号：确认面板是否展开（二次确认，避免误触）。 */
+  @State private deleteConfirmVisible: boolean = false;
   @State private signature: string = '';
   @State private newPass: string = '';
   @State private qq: string = '';
@@ -90,8 +94,7 @@ struct AccountCenterPage {
       names.push(friend.name || friend.account);
       grades.push(friend.grade);
     }
-    this.ranks = AccountStore.ranksWithFriends(this.rankKind, this.session.user,
-      this.profile.praise, this.fansCount > 0 ? this.fansCount : this.profile.fans, names, grades);
+    void this.loadRank(this.rankKind);
   }
 
   /** 读服务端资料：exp / 帖子数 / 金币 / 会员；接口失败不影响沙箱部分。 */
@@ -241,6 +244,29 @@ struct AccountCenterPage {
     }
   }
 
+  /** 拉服务端排行榜（admin_rank.php），失败回退本地估算。 */
+  private async loadRank(kind: string): Promise<void> {
+    try {
+      const entries: RankEntry[] = await AccountApi.rankList(kind);
+      if (entries.length === 0) { return; }
+      const rows: RankRow[] = [];
+      for (const entry of entries.slice(0, 100)) {
+        const row: RankRow = new RankRow();
+        row.name = entry.name;
+        row.value = entry.value;
+        if (kind === 'money') { row.extra = '金币'; }
+        else if (kind === 'praise') { row.extra = '获赞'; }
+        else if (kind === 'fans') { row.extra = '粉丝'; }
+        else { row.extra = '经验'; }
+        rows.push(row);
+      }
+      this.ranks = rows;
+      Logger.info('ACCOUNT_CENTER', '排行榜已加载：type=' + kind + '，条数=' + String(rows.length));
+    } catch (error) {
+      Logger.warn('ACCOUNT_CENTER', '加载排行榜失败：' + String(error));
+    }
+  }
+
   private switchRank(kind: string): void {
     this.rankKind = kind;
     const names: string[] = [];
@@ -250,8 +276,7 @@ struct AccountCenterPage {
       names.push(friend.name || friend.account);
       grades.push(friend.grade);
     }
-    this.ranks = AccountStore.ranksWithFriends(kind, this.session.user,
-      this.profile.praise, this.fansCount > 0 ? this.fansCount : this.profile.fans, names, grades);
+    void this.loadRank(kind);
   }
 
   private showToast(message: string): void {
@@ -276,13 +301,109 @@ struct AccountCenterPage {
       router.back();
       return;
     }
-    void replaceRoute({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
   }
 
   onBackPress(): boolean {
     if (Number(router.getLength()) > 1) { return false; }
-    void replaceRoute({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
     return true;
+  }
+
+  /** 生成注销申请文案：账号、昵称、申请时间，用户发送邮件时带上，方便我们定位账号。 */
+  private deletionRequestText(): string {
+    const account: string = this.session.user.length > 0 ? this.session.user : '（未登录）';
+    const name: string = this.nickname.length > 0 ? this.nickname : (this.profile.name || '');
+    return '【无音影视 · 注销账号申请】\n账号：' + account + '\n昵称：' + name +
+      '\n申请时间：' + new Date().toLocaleString() + '\n请删除该账号相关的全部个人信息与数据，谢谢。';
+  }
+
+  /** 提交注销申请：优先拉起邮件客户端；没配邮箱或拉起失败时复制申请文案，由用户自行发送。 */
+  private async submitDeletionRequest(): Promise<void> {
+    const body: string = this.deletionRequestText();
+    const email: string = LegalText.CONTACT_EMAIL;
+    if (email.length > 0) {
+      try {
+        const mail: string = 'mailto:' + email + '?subject=' + encodeURIComponent('无音影视账号注销申请') +
+          '&body=' + encodeURIComponent(body);
+        const opened: boolean = await PlatformBridge.openUrl(mail);
+        if (opened) {
+          this.showToast('已打开邮件，请直接发送申请');
+          Logger.info('ACCOUNT_CENTER', '已拉起邮件客户端提交注销申请');
+          return;
+        }
+        this.showToast('请联系邮箱：' + email);
+      } catch (error) {
+        Logger.warn('ACCOUNT_CENTER', '拉起邮件失败，改为复制申请文案：' + String(error));
+      }
+    }
+    const copied: boolean = await this.copyDeletionRequest(body);
+    this.showToast(copied ? '申请内容已复制，请发送到 ' + (email.length > 0 ? email : '开发者邮箱')
+      : '复制失败，请手动记录账号信息');
+  }
+
+  private async copyDeletionRequest(text: string): Promise<boolean> {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      await pasteboard.getSystemPasteboard().setData(data);
+      Logger.info('ACCOUNT_CENTER', '注销申请文案已复制到剪贴板');
+      return true;
+    } catch (error) {
+      Logger.warn('ACCOUNT_CENTER', '复制注销申请失败：' + String(error));
+      return false;
+    }
+  }
+
+  /** 注销账号入口：说明清楚处理方式（邮件申请 → 人工删除）与不可恢复性。 */
+  @Builder
+  private deleteAccountSection() {
+    Column({ space: '8vp' }) {
+      Text('账号与数据')
+        .fontSize(Ui.fs(this.tablet() ? '18vp' : '16vp', this.fontScale))
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+      Text('如需注销账号，可提交申请，我们核对身份后 15 个工作日内删除账号及关联数据（聊天记录、观看历史、收藏、资料与绑定信息）。注销后该账号不可恢复。')
+        .fontSize(Ui.fs('12vp', this.fontScale))
+        .lineHeight('19vp')
+        .fontColor(Ui.inkSoft(this.darkTheme))
+        .width('100%')
+      if (!this.deleteConfirmVisible) {
+        Text('注销账号')
+          .fontSize(Ui.fs('13.5vp', this.fontScale))
+          .fontColor('#FF6B6B')
+          .height('38vp')
+          .padding({ left: '18vp', right: '18vp' })
+          .borderRadius('19vp')
+          .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+          .border({ width: 1, color: '#33FF6B6B' })
+          .textAlign(TextAlign.Center)
+          .onClick(() => { this.deleteConfirmVisible = true; })
+      } else {
+        Text('申请提交后将通过邮件确认，期间账号可继续使用；确认删除后不可恢复。')
+          .fontSize(Ui.fs('12vp', this.fontScale))
+          .fontColor('#FF6B6B')
+          .width('100%')
+        Row({ space: '10vp' }) {
+          GhostButton({ label: '取消', compact: true, onTap: (): void => { this.deleteConfirmVisible = false; } })
+          PrimaryButton({
+            label: '提交注销申请', compact: true,
+            onTap: (): void => {
+              this.deleteConfirmVisible = false;
+              void this.submitDeletionRequest();
+            }
+          })
+        }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+      }
+    }
+      .width('100%')
+      .padding('16vp')
+      .borderRadius(Ui.R_LG)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -507,8 +628,9 @@ struct AccountCenterPage {
   @Builder
   private rankSection() {
     Column() {
-      this.card('三榜排名', '金币 / 获赞 / 粉丝 · 我的数据实时，好友按等级估算')
+      this.card('四大榜单', '等级 / 金币 / 获赞 / 粉丝 · 服务端 admin_rank.php 实时排行（前 100）')
       Row({ space: '6vp' }) {
+        GhostButton({ label: '等级榜', compact: true, onTap: (): void => { this.switchRank('level'); } })
         GhostButton({ label: '金币榜', compact: true, onTap: (): void => { this.switchRank('money'); } })
         GhostButton({ label: '获赞榜', compact: true, onTap: (): void => { this.switchRank('praise'); } })
         GhostButton({ label: '粉丝榜', compact: true, onTap: (): void => { this.switchRank('fans'); } })
@@ -576,6 +698,7 @@ struct AccountCenterPage {
               this.vipSection()
               this.profileSection()
               this.rankSection()
+              this.deleteAccountSection()
             }
           }
             .width('100%')
@@ -613,3 +736,4 @@ struct AccountCenterPage {
       })
   }
 }
+

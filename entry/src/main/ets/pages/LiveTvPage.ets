@@ -1,11 +1,11 @@
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { LiveChannel, LiveService } from '../common/LiveService';
 import { Logger } from '../common/Logger';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { Ui } from '../common/Ui';
-import { AuroraBackdrop, EmptyState, GhostButton, GlassSearchBar } from '../common/UiWidgets';
+import { AuroraBackdrop, EmptyState, GhostButton, GlassSearchBar, PrimaryButton } from '../common/UiWidgets';
 import { SymbolIcons } from '../common/SymbolIcons';
 
 class LivePlayerParams {
@@ -69,6 +69,12 @@ export struct LiveTvPage {
   @State private loading: boolean = true;
   @State private errorText: string = '';
   @State private viewportWidth: number = 360;
+  /** 当前直播源标签（文件名/链接），用于头部展示来源。 */
+  @State private sourceLabel: string = '';
+  /** 链接导入面板与输入框状态。 */
+  @State private urlPanelVisible: boolean = false;
+  @State private sourceUrl: string = '';
+  @State private importing: boolean = false;
   private readonly navScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
@@ -83,6 +89,7 @@ export struct LiveTvPage {
       await LiveService.load(context);
       this.channels = LiveService.channels();
       this.groups = ['全部'].concat(LiveService.groups());
+      this.sourceLabel = LiveService.currentSourceLabel();
       Logger.info('LIVE_TV', '频道列表就绪：' + String(this.channels.length));
     } catch (error) {
       this.errorText = String(error);
@@ -90,6 +97,56 @@ export struct LiveTvPage {
     } finally {
       this.loading = false;
     }
+  }
+
+  /** 导入 m3u 文件：成功后就地刷新频道列表。 */
+  private async importFromFile(): Promise<void> {
+    if (this.importing) { return; }
+    this.importing = true;
+    this.errorText = '';
+    try {
+      const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const count: number = await LiveService.importFile(context);
+      if (count > 0) {
+        this.selectedGroup = '全部';
+        this.query = '';
+        this.urlPanelVisible = false;
+        await this.load();
+        this.showToast('已导入 ' + String(count) + ' 个频道');
+      }
+    } catch (error) {
+      this.errorText = String(error);
+      Logger.warn('LIVE_TV', '导入直播源文件失败：' + String(error));
+    } finally {
+      this.importing = false;
+    }
+  }
+
+  /** 从链接导入 m3u：下载后解析。 */
+  private async importFromUrl(): Promise<void> {
+    if (this.importing) { return; }
+    this.importing = true;
+    this.errorText = '';
+    try {
+      const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const count: number = await LiveService.importUrl(context, this.sourceUrl);
+      this.selectedGroup = '全部';
+      this.query = '';
+      this.urlPanelVisible = false;
+      this.sourceUrl = '';
+      await this.load();
+      this.showToast('已导入 ' + String(count) + ' 个频道');
+    } catch (error) {
+      this.errorText = String(error);
+      Logger.warn('LIVE_TV', '从链接导入直播源失败：' + String(error));
+    } finally {
+      this.importing = false;
+    }
+  }
+
+  private showToast(message: string): void {
+    try { this.getUIContext().getPromptAction().showToast({ message: message, duration: 2000 }); }
+    catch (_) { /* 忽略 */ }
   }
 
   private filteredChannels(): LiveChannel[] {
@@ -254,6 +311,52 @@ export struct LiveTvPage {
             GhostButton({ label: '重试', onTap: (): void => { void this.load(); } })
           }
             .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else if (!LiveService.hasSource()) {
+          // 合规版：应用不内置任何直播频道，用户自己导入 m3u 源后才会出现频道列表。
+          Column({ space: '14vp' }) {
+            EmptyState({
+              title: '还没有直播源',
+              hint: '应用不内置直播频道。请导入你自己拥有或有权使用的 m3u 直播源文件，或填入直播源链接。',
+              icon: SymbolIcons.play()
+            })
+            Row({ space: '10vp' }) {
+              GhostButton({ label: '导入 m3u 文件', compact: true, onTap: (): void => { void this.importFromFile(); } })
+              PrimaryButton({ label: '从链接导入', compact: true, onTap: (): void => { this.urlPanelVisible = true; } })
+            }
+              .justifyContent(FlexAlign.Center)
+            if (this.urlPanelVisible) {
+              Column({ space: '8vp' }) {
+                TextInput({ text: this.sourceUrl, placeholder: 'https://…/live.m3u' })
+                  .fontSize(Ui.fs('13vp', this.fontScale))
+                  .fontColor(Ui.ink(this.darkTheme))
+                  .height('40vp')
+                  .borderRadius('14vp')
+                  .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+                  .onChange((value: string) => { this.sourceUrl = value; })
+                if (this.importing) {
+                  LoadingProgress().width('24vp').height('24vp').color(Ui.accent(this.darkTheme))
+                }
+                Row({ space: '10vp' }) {
+                  GhostButton({ label: '取消', compact: true, onTap: (): void => { this.urlPanelVisible = false; } })
+                  PrimaryButton({ label: '开始导入', compact: true, onTap: (): void => { void this.importFromUrl(); } })
+                }
+                  .justifyContent(FlexAlign.End)
+              }
+                .width('100%')
+                .padding({ top: '4vp' })
+            }
+            if (this.errorText.length > 0) {
+              Text(this.errorText)
+                .fontSize(Ui.fs('12vp', this.fontScale))
+                .fontColor(Ui.danger(this.darkTheme))
+                .textAlign(TextAlign.Center)
+                .width('100%')
+            }
+          }
+            .width('100%')
+            .layoutWeight(1)
+            .padding({ left: '24vp', right: '24vp' })
+            .justifyContent(FlexAlign.Center)
         } else if (this.filteredChannels().length === 0) {
           Column() {
             EmptyState({ title: '没有匹配的频道', hint: '换一个分组或关键词', icon: SymbolIcons.play() })
@@ -315,3 +418,5 @@ struct LiveTvPageEntry {
       .height('100%')
   }
 }
+
+

@@ -2,6 +2,8 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { router } from '@kit.ArkUI';
 import { AppConfig } from '../common/AppConfig';
+import { ImageHostConfig, ImageHostResult, ImageHostService } from '../common/ImageHostService';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ChatAlertService } from '../common/ChatAlertService';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -9,11 +11,21 @@ import { Logger } from '../common/Logger';
 import { NavTabDefinition, NavTabs } from '../common/NavTabs';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { NotificationService } from '../common/NotificationService';
-import { SearchSources } from '../common/SearchSources';
+import { SearchSource, SearchSources } from '../common/SearchSources';
+import { SourceShareCodec } from '../common/SourceShareCodec';
+import { http } from '@kit.NetworkKit';
+import { SourceKind, SourceRules, TvboxSite } from '../common/SourceRules';
+import { DnsMode, DnsService } from '../common/DnsService';
 import { SymbolIcons } from '../common/SymbolIcons';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassIconButton, PageHeader, PrimaryButton } from '../common/UiWidgets';
 import { ChatArchive } from '../common/ChatArchive';
+import { VoiceFile, VoiceStore } from '../common/VoiceStore';
+import { FrameRateConfig, FrameRateService } from '../common/FrameRateService';
+import { ThemeService } from '../common/ThemeService';
+import { WallpaperKind, WallpaperMedia, WallpaperService } from '../common/WallpaperService';
+import { AdBlockService } from '../common/AdBlockService';
+import { DockStyleConfig, DockStyleOption, DockStyleStore } from '../common/DockStyleStore';
 import { AccountApi } from '../common/AccountApi';
 import { CommunityApi } from '../common/CommunityApi';
 import { SocialStore } from '../common/SocialStore';
@@ -46,6 +58,14 @@ class LogLineDataSource implements IDataSource {
  */
 @Component
 export struct SettingPage {
+  /** 各类型源的填写提示。 */
+  private static kindHint(kind: string): string {
+    if (kind === SourceKind.TVBOX) { return '在地址栏填 TVBox site 的 api，或点「导入 TVBox」批量导入'; }
+    if (kind === SourceKind.WEB) { return '填网页地址（可用 {kw} 占位），高级 JSON 可配 referer / mediaRegex'; }
+    if (kind === SourceKind.NETDISK) { return '填网盘解析接口（支持 {share}/{kw}），需返回 url/playUrl'; }
+    return '填苹果CMS V10 采集接口，关键词自动拼到末尾';
+  }
+
   @StorageLink('immersiveConfig') @Watch('onImmersiveConfigChanged') private immersiveConfig: PlayerImmersiveConfig = AppState.immersiveConfig;
   @StorageLink('immersiveEnabled') immersiveEnabled: boolean = true;
   @StorageLink('immersiveBlur') immersiveBlur: number = 20;
@@ -67,13 +87,62 @@ export struct SettingPage {
   @StorageLink('fontScale') private fontScale: number = 1;
   // 底栏 Tab 的显示与顺序；设置页与 LiquidNav 绑定同一个 AppStorage 数组。
   @StorageLink('navTabKeys') private navTabKeys: string[] = NavTabs.DEFAULT_KEYS;
+  // 壁纸设置：本地导入背景 + 透明度 / 播放速率 / 动态背景帧率（与 WallpaperService 共用同一组键）。
+  @StorageLink('wallpaperMediaId') private wallpaperMediaId: string = '';
+  @StorageLink('wallpaperMediaKind') private wallpaperMediaKind: string = '';
+  @StorageLink('wallpaperMediaName') private wallpaperMediaName: string = '';
+  @StorageLink('wallpaperOpacity') private wallpaperOpacity: number = 0.85;
+  @StorageLink('wallpaperRate') private wallpaperRate: number = 1;
+  @StorageLink('wallpaperFrameHz') private wallpaperFrameHz: number = 0;
+  @StorageLink('wallpaperMotion') private wallpaperMotion: boolean = true;
+  @State private wallpaperImporting: boolean = false;
+  // 广告拦截：m3u8 播放地址过滤（开关由 AdBlockService 持久化并发布到 AppStorage）。
+  @StorageLink('adBlockEnabled') private adBlockEnabled: boolean = true;
+  @State private showAdBlockDialog: boolean = false;
   @StorageLink('page') private currentPage: string = 'home';
   // 宿主发布的底栏占位高度：底栏 + 底栏上方渐进模糊带 + 手势条。
   @StorageLink('navClearance') private navClearance: number = 186;
   @State backendDomain: string = AppConfig.DEFAULT_BACKEND_DOMAIN;
+  /** 界面尺寸落盘的防抖定时器：拖动过程中只改状态，停手后再保存。 */
+  private scaleSaveTimer: number = -1;
   @State backendAccount: string = AppConfig.DEFAULT_BACKEND_ACCOUNT;
   @State savingBackendDomain: boolean = false;
   @State savingBackendAccount: boolean = false;
+  // 图床设置：接口地址、表单字段名、返回直链的 JSON 路径，默认值来自 ImageHostService。
+  @State imageHostUrl: string = ImageHostService.DEFAULT_UPLOAD_URL;
+  @State imageHostField: string = ImageHostService.DEFAULT_FIELD_NAME;
+  @State imageHostPath: string = ImageHostService.DEFAULT_RESPONSE_PATH;
+  // 需要鉴权的图床（奶昔 Chevereto）用 X-API-Key 头；默认内置一个 key，界面固定按密码态显示，不提供查看明文入口。
+  @State imageHostKey: string = ImageHostService.DEFAULT_API_KEY;
+  // 直传代理（可选）：原始字节 POST，绕开客户端 multipart，主要给视频/音频用。
+  @State imageHostProxy: string = '';
+  @State savingImageHost: boolean = false;
+  // 「测试接口」：用当前输入框里的值直接传一张图，结果就地展示（不进历史、不改配置）。
+  @State testingImageHost: boolean = false;
+  @State imageHostTestText: string = '';
+  @State imageHostTestOk: boolean = false;
+  // 音频管理：本地录音列表 + 自动清理设置。
+  @State voiceFiles: VoiceFile[] = [];
+  @State voiceAutoClean: boolean = true;
+  @State voiceKeepDays: string = String(VoiceStore.DEFAULT_DAYS);
+  @State voiceMaxCount: string = String(VoiceStore.DEFAULT_MAX);
+  // 帧数设置：跟随系统 / 软件帧率 / 播放器帧率。
+  @State private frameFollowSystem: boolean = true;
+  @State private frameAppHz: number = 60;
+  @State private framePlayerHz: number = 60;
+  @State private savingFrameRate: boolean = false;
+  /** 设备支持的最高刷新率（0 表示未知，不限制）。 */
+  @State private frameMaxHz: number = 0;
+  // Dock 栏外观：样式 / 强度 / 低电量自适应。
+  @State private dockStyleKey: string = 'glow';
+  @State private dockIntensity: number = 70;
+  @State private dockBatteryAuto: boolean = true;
+  @State private dockThreshold: string = '20';
+  @State private dockBatteryNow: number = 100;
+  // 直链图床（dbimg）：地址、API Key，语音消息走这家。
+  @State directUrl: string = ImageHostService.DEFAULT_DIRECT_URL;
+  @State directKey: string = ImageHostService.DEFAULT_DIRECT_KEY;
+  @State savingDirect: boolean = false;
   @State isTablet: boolean = false;
   @State showLogDialog: boolean = false;
   @State showClearDialog: boolean = false;
@@ -82,8 +151,30 @@ export struct SettingPage {
   @State activeMenu: string = '沉浸外观';
   @State pressedAction: string = '';
   @State remoteAddress: string = SearchSources.DEFAULT_ADDRESS;
+  /** 分类页数据接口地址（用户自行填写，应用不内置）。 */
+  /** 自定义搜索规则：列表 + 新增表单（名称/接口地址）+ 提示文案。 */
+  @State customRules: SearchSource[] = [];
+  /** 本地停用 id 列表：按钮文字直接跟随它，避免持久化回来前状态不刷新。 */
+  @State private disabledRuleIds: number[] = [];
+  @State customRuleName: string = '';
+  /** 源规则类型：cms / tvbox / web / netdisk。 */
+  @State customRuleKind: string = 'cms';
+  /** 线路管理模式：开启后可勾选批量删除/批量启停。 */
+  @State ruleManageMode: boolean = false;
+  /** 已勾选的线路 id。 */
+  @State selectedRuleIds: number[] = [];
+  /** DNS 解析模式：follow / off / aliyun / tencent。 */
+  @State dnsMode: string = DnsMode.FOLLOW;
+  /** DNS 测试结果文案。 */
+  @State dnsProbeResult: string = '';
+  /** 高级规则 JSON（搜索模板、Referer、嗅探正则、网盘接口）。 */
+  @State customRuleRule: string = '';
+  @State customRuleUrl: string = '';
+  @State customRuleHint: string = '';
   @State savingAddress: boolean = false;
   @State importingSource: boolean = false;
+  /** 自定义规则保存中：防连点重复添加。 */
+  @State savingCustomRule: boolean = false;
   // 仅用于输入框的聚焦描边，不影响任何业务状态。
   @State private focusedField: string = '';
   private readonly appConfig: AppConfig = AppConfig.getInstance();
@@ -117,6 +208,148 @@ export struct SettingPage {
   // 页面每次显示时从 AppConfig 单例回填，避免使用 AppStorage 导致配置不同步。
   onPageShow(): void {
     this.refreshBackendConfig();
+    this.refreshImageHost();
+    this.refreshVoice();
+    this.refreshDirect();
+    this.refreshFrameRate();
+    this.refreshDockStyle();
+    this.refreshCustomRules();
+  }
+
+  // ---------- 直链图床（dbimg） ----------
+
+  private refreshDirect(): void {
+    const config: ImageHostConfig = ImageHostService.current();
+    this.directUrl = config.directUrl || ImageHostService.DEFAULT_DIRECT_URL;
+    this.directKey = config.directKey;
+  }
+
+  private async saveDirect(): Promise<void> {
+    if (this.savingDirect) { return; }
+    this.savingDirect = true;
+    try {
+      const config: ImageHostConfig = ImageHostService.current();
+      await ImageHostService.save(config.uploadUrl, config.fieldName, config.responsePath,
+        config.apiKey, config.proxyUrl, this.directUrl.trim(), this.directKey.trim());
+      this.refreshDirect();
+      this.showToast('直链设置已保存');
+    } catch (error) {
+      this.showOperationError('保存直链设置失败：' + String(error));
+    } finally {
+      this.savingDirect = false;
+    }
+  }
+
+  private useDbimgDefaults(): void {
+    this.directUrl = ImageHostService.DEFAULT_DIRECT_URL;
+    this.directKey = ImageHostService.DEFAULT_DIRECT_KEY;
+    this.showToast('已填入 dbimg 默认配置，记得保存');
+  }
+
+  // ---------- 音频管理 ----------
+
+  // ---------- Dock 栏外观 ----------
+
+  private refreshDockStyle(): void {
+    const config: DockStyleConfig = DockStyleStore.current();
+    this.dockStyleKey = config.style;
+    this.dockIntensity = config.intensity;
+    this.dockBatteryAuto = config.batteryAuto;
+    this.dockThreshold = String(config.batteryThreshold);
+    this.dockBatteryNow = DockStyleStore.batteryPercent();
+  }
+
+  private async saveDockStyle(): Promise<void> {
+    const threshold: number = Number(this.dockThreshold);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+      this.showToast('低电量阈值需要在 0~100 之间');
+      return;
+    }
+    try {
+      await DockStyleStore.save(this.dockStyleKey, this.dockIntensity, this.dockBatteryAuto, threshold);
+      this.refreshDockStyle();
+      this.showToast('Dock 外观已保存');
+    } catch (error) {
+      this.showOperationError('保存 Dock 外观失败：' + String(error));
+    }
+  }
+
+  // ---------- 帧数设置 ----------
+
+  private refreshFrameRate(): void {
+    FrameRateService.refreshCapability();
+    this.frameMaxHz = FrameRateService.maxSupportedHz();
+    const config: FrameRateConfig = FrameRateService.current();
+    this.frameFollowSystem = config.followSystem;
+    this.frameAppHz = config.appHz;
+    this.framePlayerHz = config.playerHz;
+  }
+
+  /** 该挡位是否超出设备支持上限（0 表示未知，全部放开）。 */
+  private frameRateSupported(hz: number): boolean {
+    return this.frameMaxHz <= 0 || hz <= this.frameMaxHz;
+  }
+
+  private async saveFrameRate(): Promise<void> {
+    if (this.savingFrameRate) { return; }
+    this.savingFrameRate = true;
+    try {
+      await FrameRateService.save(this.frameFollowSystem, this.frameAppHz, this.framePlayerHz);
+      this.refreshFrameRate();
+      this.showToast(this.frameFollowSystem
+        ? '已保存：跟随系统刷新率'
+        : '已保存：软件 ' + String(this.frameAppHz) + 'Hz，播放器 ' + String(this.framePlayerHz) + 'Hz');
+    } catch (error) {
+      this.showOperationError('保存帧数设置失败：' + String(error));
+    } finally {
+      this.savingFrameRate = false;
+    }
+  }
+
+  private refreshVoice(): void {
+    this.voiceFiles = VoiceStore.list();
+    this.voiceAutoClean = VoiceStore.autoClean();
+    this.voiceKeepDays = String(VoiceStore.retainDays());
+    this.voiceMaxCount = String(VoiceStore.maxCount());
+  }
+
+  private voiceStat(): string {
+    const count: number = this.voiceFiles.length;
+    return '共 ' + String(count) + ' 条 · ' + VoiceStore.formatSize(VoiceStore.totalBytes(this.voiceFiles));
+  }
+
+  private deleteVoiceFile(name: string): void {
+    VoiceStore.deleteFile(name);
+    this.refreshVoice();
+    this.showToast('已删除 1 条语音');
+  }
+
+  private clearVoiceFiles(): void {
+    VoiceStore.clearAll();
+    this.refreshVoice();
+    this.showToast('已清空本地语音');
+  }
+
+  private cleanVoiceNow(): void {
+    const removed: number = VoiceStore.enforce();
+    this.refreshVoice();
+    this.showToast(removed > 0 ? ('已自动清理 ' + String(removed) + ' 条') : '没有需要清理的语音');
+  }
+
+  private async saveVoiceSettings(): Promise<void> {
+    const days: number = Number(this.voiceKeepDays);
+    const max: number = Number(this.voiceMaxCount);
+    if (!Number.isFinite(days) || days < 0) {
+      this.showToast('保留天数需要是 0 或正整数（0 = 不限）');
+      return;
+    }
+    if (!Number.isFinite(max) || max < 1) {
+      this.showToast('数量上限至少为 1');
+      return;
+    }
+    await VoiceStore.saveSettings(this.voiceAutoClean, max, days);
+    this.refreshVoice();
+    this.showToast('音频设置已保存');
   }
 
   private async saveBackendDomain(): Promise<void> {
@@ -188,6 +421,120 @@ export struct SettingPage {
     } finally {
       this.savingBackendAccount = false;
     }
+  }
+
+  private refreshImageHost(): void {
+    try {
+      const config: ImageHostConfig = ImageHostService.current();
+      this.imageHostUrl = config.uploadUrl || ImageHostService.DEFAULT_UPLOAD_URL;
+      this.imageHostField = config.fieldName || ImageHostService.DEFAULT_FIELD_NAME;
+      // 返回路径允许为空（接口直接返回纯文本直链），所以这里不能用 || 兜默认值。
+      this.imageHostPath = config.responsePath;
+      this.imageHostKey = config.apiKey;
+      this.imageHostProxy = config.proxyUrl;
+    } catch (error) {
+      Logger.error('SETTING_IMAGE_HOST', '回填图床配置失败：' + String(error));
+      this.showOperationError('读取图床配置失败：' + String(error));
+    }
+  }
+
+  private async saveImageHost(): Promise<void> {
+    if (this.savingImageHost) { return; }
+    this.savingImageHost = true;
+    try {
+      await ImageHostService.save(this.imageHostUrl, this.imageHostField, this.imageHostPath, this.imageHostKey, this.imageHostProxy);
+      const config: ImageHostConfig = ImageHostService.current();
+      this.imageHostUrl = config.uploadUrl;
+      this.imageHostField = config.fieldName;
+      this.imageHostPath = config.responsePath;
+      this.imageHostKey = config.apiKey;
+      this.imageHostProxy = config.proxyUrl;
+      this.showToast('图床配置已保存');
+    } catch (error) {
+      Logger.error('SETTING_IMAGE_HOST', '保存图床配置失败：' + String(error));
+      this.showOperationError('保存图床配置失败：' + String(error));
+    } finally {
+      this.savingImageHost = false;
+    }
+  }
+
+  /** 用输入框里的三个值直接试传一张图，结果就地展示；成功也不会自动保存配置。 */
+  private async testImageHost(): Promise<void> {
+    if (this.testingImageHost) { return; }
+    this.testingImageHost = true;
+    this.imageHostTestOk = false;
+    this.imageHostTestText = '正在选择图片…';
+    try {
+      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
+      const selected: photoAccessHelper.PhotoSelectResult = await picker.select(options);
+      const uris: string[] = selected.photoUris;
+      if (uris.length === 0) {
+        this.imageHostTestText = '已取消测试';
+        return;
+      }
+      this.imageHostTestText = '正在上传测试…';
+      const config: ImageHostConfig = new ImageHostConfig();
+      config.uploadUrl = this.imageHostUrl.trim();
+      config.fieldName = this.imageHostField.trim();
+      config.responsePath = this.imageHostPath.trim();
+      config.apiKey = this.imageHostKey.trim();
+      config.proxyUrl = this.imageHostProxy.trim();
+      const result: ImageHostResult = await ImageHostService.uploadWith(config, uris[0]);
+      if (result.ok && result.url.length > 0) {
+        this.imageHostTestOk = true;
+        this.imageHostTestText = '上传成功（' + (result.host || '已配置图床') + '）：' + result.url;
+        Logger.info('SETTING_IMAGE_HOST', '测试图床接口成功，图床=' + result.host);
+      } else {
+        const status: string = result.httpStatus > 0 ? '（HTTP ' + String(result.httpStatus) + '）' : '';
+        this.imageHostTestText = '上传失败' + status + '：' + (result.message || '未知原因') +
+          (result.notFound ? ' —— 接口 404，聊天页会要求手填直链' : '');
+        Logger.error('SETTING_IMAGE_HOST', '测试图床接口失败：' + this.imageHostTestText);
+      }
+    } catch (error) {
+      this.imageHostTestOk = false;
+      this.imageHostTestText = '测试失败：' + String(error);
+      Logger.error('SETTING_IMAGE_HOST', '测试图床接口异常：' + String(error));
+    } finally {
+      this.testingImageHost = false;
+    }
+  }
+
+  private async restoreImageHost(): Promise<void> {
+    if (this.savingImageHost) { return; }
+    this.savingImageHost = true;
+    try {
+      await ImageHostService.restoreDefaults();
+      const config: ImageHostConfig = ImageHostService.current();
+      this.imageHostUrl = config.uploadUrl;
+      this.imageHostField = config.fieldName;
+      this.imageHostPath = config.responsePath;
+      this.imageHostKey = config.apiKey;
+      this.imageHostProxy = config.proxyUrl;
+      this.showToast('已恢复默认图床接口');
+    } catch (error) {
+      Logger.error('SETTING_IMAGE_HOST', '恢复默认图床失败：' + String(error));
+      this.showOperationError('恢复默认图床失败：' + String(error));
+    } finally {
+      this.savingImageHost = false;
+    }
+  }
+
+  /**
+   * 一键填入奶昔（Chevereto）官方 API v1 的三项配置，只用再粘自己的 key。
+   * 奶昔的匿名 /api/upload 不存在，真正能用的就是这组值。
+   */
+  private applyNaishiPreset(): void {
+    this.imageHostUrl = ImageHostService.DEFAULT_UPLOAD_URL;
+    this.imageHostField = ImageHostService.DEFAULT_FIELD_NAME;
+    this.imageHostPath = ImageHostService.DEFAULT_RESPONSE_PATH;
+    if (this.imageHostKey.trim().length === 0) {
+      this.imageHostKey = ImageHostService.DEFAULT_API_KEY;
+    }
+    this.imageHostTestText = '已填入奶昔 API v1 配置（未填 key 时用内置 key），可直接点「保存图床设置」或「测试接口」';
+    this.imageHostTestOk = false;
+    Logger.info('SETTING_IMAGE_HOST', '填入奶昔 API v1 预设配置');
   }
 
   private pageBackground(): ResourceColor {
@@ -315,12 +662,18 @@ export struct SettingPage {
     try {
       const nextDock: number = Ui.dockScale(dock);
       const nextFont: number = Ui.fontScale(font);
+      // 先改状态：拖动过程中界面（含数值气泡、预览、全页字号）立刻跟着变。
       this.dockScale = nextDock;
       this.fontScale = nextFont;
-      void AppState.setUiScales(nextDock, nextFont).catch((error: Error) => {
-        Logger.error('SETTING_UI_SCALE', '保存界面尺寸失败：' + String(error));
-        this.showOperationError('保存界面尺寸失败：' + String(error));
-      });
+      // 每一帧都写 preferences 会拖慢拖动，停手 200ms 后统一落盘。
+      if (this.scaleSaveTimer >= 0) { clearTimeout(this.scaleSaveTimer); }
+      this.scaleSaveTimer = setTimeout(() => {
+        this.scaleSaveTimer = -1;
+        void AppState.setUiScales(this.dockScale, this.fontScale).catch((error: Error) => {
+          Logger.error('SETTING_UI_SCALE', '保存界面尺寸失败：' + String(error));
+          this.showOperationError('保存界面尺寸失败：' + String(error));
+        });
+      }, 200);
     } catch (error) {
       Logger.error('SETTING_UI_SCALE', '更新界面尺寸失败：' + String(error));
       this.showOperationError('更新界面尺寸失败：' + String(error));
@@ -329,6 +682,10 @@ export struct SettingPage {
 
   private restoreUiScale(): void {
     try {
+      if (this.scaleSaveTimer >= 0) {
+        clearTimeout(this.scaleSaveTimer);
+        this.scaleSaveTimer = -1;
+      }
       this.dockScale = 1;
       this.fontScale = 1;
       void AppState.restoreUiScales().catch((error: Error) => {
@@ -370,9 +727,10 @@ export struct SettingPage {
       this.immersiveEnabled = true;
       this.immersiveBlur = 20;
       this.immersiveOpacity = 0.8;
-      this.darkTheme = true;
+      this.darkTheme = false;
       this.immersiveConfig = { immersiveEnable: true, immersiveBlur: 20, immersiveOpacity: 0.8, autoColorEnable: true };
       this.updateConfig();
+      void AppState.setThemeMode('light');
       Logger.info('BUTTON', '恢复默认沉浸设置');
       this.showToast('已恢复默认设置');
     } catch (error) {
@@ -384,6 +742,61 @@ export struct SettingPage {
   private showToast(message: string): void {
     this.toastText = message;
     setTimeout(() => { this.toastText = ''; }, 2200);
+  }
+
+  // ---------------- 壁纸设置 ----------------
+
+  /** 当前背景文案：本地导入资源优先，其次内置渐变壁纸，最后跟随主题。 */
+  private wallpaperSummary(): string {
+    if (this.wallpaperMediaId.length > 0 && this.wallpaperMediaName.length > 0) {
+      return WallpaperKind.label(this.wallpaperMediaKind) + '「' + this.wallpaperMediaName + '」';
+    }
+    const name: string = ThemeService.backgroundName();
+    return name.length > 0 ? '内置壁纸「' + name + '」' : '跟随当前主题背景';
+  }
+
+  private openWallpaperPage(): void {
+    router.pushUrl({ url: 'pages/WallpaperPage' }).catch((error: Error) => {
+      Logger.error('SETTING_WALLPAPER', '打开壁纸页失败：' + String(error));
+      this.showOperationError('打开壁纸页失败：' + String(error));
+    });
+  }
+
+  /** 直接在设置页导入本地图片 / GIF / 视频背景，导入后自动应用第一个文件。 */
+  private async importWallpaper(): Promise<void> {
+    if (this.wallpaperImporting) {
+      return;
+    }
+    this.wallpaperImporting = true;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const created: WallpaperMedia[] = await WallpaperService.importFromPicker(context);
+      if (created.length === 0) {
+        this.showToast('未选择文件，或文件格式不支持');
+        return;
+      }
+      const first: WallpaperMedia = created[0];
+      if (ThemeService.applyImportedWallpaper(first.id)) {
+        this.showToast('已导入并应用' + WallpaperKind.label(first.kind) + '「' + first.name + '」');
+      } else {
+        this.showToast('已导入，但应用失败');
+      }
+    } catch (error) {
+      Logger.error('SETTING_WALLPAPER', '导入背景失败：' + String(error));
+      this.showToast('导入失败，请重新选择文件');
+    } finally {
+      this.wallpaperImporting = false;
+    }
+  }
+
+  private clearWallpaper(): void {
+    try {
+      ThemeService.clearBackground();
+      this.showToast('已恢复主题默认背景');
+    } catch (error) {
+      Logger.error('SETTING_WALLPAPER', '清空背景失败：' + String(error));
+      this.showOperationError('清空背景失败：' + String(error));
+    }
   }
 
   private showErrorDialog(title: string, message: string): void {
@@ -402,8 +815,9 @@ export struct SettingPage {
   private showSourceError(message: string): void {
     // 修复 10505001：对话框按钮的 color 只接受 string | Resource，不能传 ResourceColor。
     this.showToast(message);
-    this.showErrorDialog('搜索源操作失败', message);
-  }
+    this.showErrorDialog('搜索源操作失败', message);  }
+
+
 
   // 自定义远端地址：保存至持久化配置，搜索页面进入时读取并请求该地址。
   private async saveSourceAddress(): Promise<void> {
@@ -434,7 +848,257 @@ export struct SettingPage {
       this.showSourceError('导入失败：' + String(error));
     } finally {
       this.importingSource = false;
+      this.refreshCustomRules();
     }
+  }
+
+  private exportLongPressAt: number = 0;
+  private exportPressTimer: number = -1;
+
+  private clearExportPressTimer(): void {
+    if (this.exportPressTimer !== -1) {
+      clearTimeout(this.exportPressTimer);
+      this.exportPressTimer = -1;
+    }
+  }
+
+  private enabledRulesForExport(): SearchSource[] {
+    // 合并页面状态与 SearchSources 缓存，避免只导出当前已渲染的部分线路。
+    const byId: Map<number, SearchSource> = new Map<number, SearchSource>();
+    SearchSources.managedList().forEach((item: SearchSource) => {
+      if (item.enabled === false || this.disabledRuleIds.indexOf(item.id) >= 0) { return; }
+      byId.set(item.id, item);
+    });
+    this.customRules.forEach((item: SearchSource) => {
+      if (!this.isRuleEnabled(item)) {
+        byId.delete(item.id);
+        return;
+      }
+      byId.set(item.id, item);
+    });
+    return Array.from(byId.values());
+  }
+
+  private async shareEnabledRules(): Promise<void> {
+    try {
+      const exportable: SearchSource[] = this.enabledRulesForExport();
+      if (exportable.length === 0) {
+        this.showToast('没有已启用的自定义线路');
+        return;
+      }
+      const json: string = JSON.stringify({
+        version: 1,
+        count: exportable.length,
+        userlist: exportable
+      });
+      const parts: string[] = await SourceShareCodec.encode(json);
+      AppStorage.setOrCreate<string[]>('sourceShareParts', parts);
+      AppStorage.setOrCreate<string>('sourceShareJson', json);
+      const cover: string = AppStorage.get<string>('wallpaperMediaUri') || '';
+      router.pushUrl({
+        url: 'pages/ShareQrPage',
+        params: {
+          link: 'wuyin://sources',
+          qrLink: '',
+          title: '无音影视资源线路',
+          subtitle: '共 ' + String(exportable.length) + ' 线路',
+          cover: cover,
+          sourceMode: true
+        }
+      }).catch((error: Error) => {
+        Logger.error('SearchEngineLoad', '打开线路分享二维码失败：' + String(error));
+        this.showToast('打开分享二维码失败');
+      });
+    } catch (error) {
+      Logger.error('SearchEngineLoad', '生成线路分享数据失败：' + String(error));
+      this.showToast(String(error));
+    }
+  }
+
+  // 搜索源导出：只导出已启用的自定义线路，文件名固定为 无音影视资源线路.json。
+  private async exportEnabledRules(): Promise<void> {
+    if (Date.now() - this.exportLongPressAt < 800) { return; }
+    try {
+      const exportable: SearchSource[] = this.enabledRulesForExport();
+      const exported: boolean = await SearchSources.exportEnabled(
+        getContext(this) as common.UIAbilityContext, exportable);
+      if (exported) {
+        this.showToast('已导出 ' + String(exportable.length) + ' 条：' + SearchSources.IMPORT_FILENAME);
+      }
+    } catch (error) {
+      Logger.error('SearchEngineLoad', '设置页导出失败：' + String(error));
+      this.showSourceError('导出失败：' + String(error));
+    }
+  }
+
+  /** 同步自定义规则列表到页面状态。 */
+  private refreshCustomRules(): void {
+    try {
+      this.customRules = SearchSources.managedList();
+      this.disabledRuleIds = this.customRules
+        .filter((item: SearchSource): boolean => item.enabled === false)
+        .map((item: SearchSource): number => item.id);
+    }
+    catch (error) { Logger.warn('SearchEngineLoad', '读取自定义规则失败：' + String(error)); }
+  }
+
+  private isRuleEnabled(rule: SearchSource): boolean {
+    return this.disabledRuleIds.indexOf(rule.id) < 0;
+  }
+
+  private setLocalRuleEnabled(id: number, enabled: boolean): void {
+    if (enabled) {
+      this.disabledRuleIds = this.disabledRuleIds.filter((value: number): boolean => value !== id);
+    } else if (this.disabledRuleIds.indexOf(id) < 0) {
+      this.disabledRuleIds = this.disabledRuleIds.concat([id]);
+    }
+  }
+
+  /** 添加一条自定义规则（名称 + 接口地址），成功后清空表单。 */
+  /** 导入 TVBox 配置：拉配置 JSON，把 sites 批量加进自定义规则。 */
+  private async importTvbox(): Promise<void> {
+    const url: string = this.customRuleUrl.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      this.showSourceError('请先在上面的地址栏填写 TVBox 配置地址');
+      return;
+    }
+    try {
+      const request = http.createHttp();
+      let body: string = '';
+      try {
+        const response = await request.request(url, {
+          method: http.RequestMethod.GET, connectTimeout: 8000, readTimeout: 12000
+        });
+        body = String(response.result || '');
+      } finally {
+        request.destroy();
+      }
+      const sites: TvboxSite[] = SourceRules.parseTvbox(body);
+      let added: number = 0;
+      for (const site of sites) {
+        if (added >= 60) { break; }
+        try {
+          const ruleJson: string = site.playUrl.length > 0
+            ? JSON.stringify({ 'playProxy': site.playUrl }) : '';
+          await SearchSources.addCustom(site.name, site.api, '', 'cms', ruleJson);
+          added++;
+        } catch (error) {
+          // 重复接口跳过，不打断批量导入。
+        }
+      }
+      this.refreshCustomRules();
+      this.showToast('已从 TVBox 配置导入 ' + String(added) + ' 条源');
+    } catch (error) {
+      this.showSourceError('导入 TVBox 配置失败：' + String(error));
+    }
+  }
+
+  /** 单条线路启用/停用：先即时切换按钮文字，再持久化，失败回滚。 */
+  private async toggleRule(rule: SearchSource): Promise<void> {
+    const nextEnabled: boolean = !this.isRuleEnabled(rule);
+    const previousDisabled: number[] = this.disabledRuleIds;
+    this.setLocalRuleEnabled(rule.id, nextEnabled);
+    try {
+      await SearchSources.setEnabled([rule.id], nextEnabled);
+      this.showToast(nextEnabled ? '已启用「' + rule.name + '」' : '已停用「' + rule.name + '」');
+    } catch (error) {
+      this.disabledRuleIds = previousDisabled;
+      this.showSourceError('切换线路状态失败：' + String(error));
+    }
+  }
+
+  /** 批量启用/停用：同样即时刷新每一行的按钮文字。 */
+  private async setRulesEnabled(enabled: boolean): Promise<void> {
+    if (this.selectedRuleIds.length === 0) { return; }
+    const previousDisabled: number[] = this.disabledRuleIds;
+    for (const id of this.selectedRuleIds) {
+      this.setLocalRuleEnabled(id, enabled);
+    }
+    try {
+      await SearchSources.setEnabled(this.selectedRuleIds, enabled);
+      this.showToast((enabled ? '已启用 ' : '已停用 ') + String(this.selectedRuleIds.length) + ' 条线路');
+    } catch (error) {
+      this.disabledRuleIds = previousDisabled;
+      this.showSourceError('批量更新失败：' + String(error));
+    }
+  }
+
+  /** 批量删除。 */
+  private async removeSelectedRules(): Promise<void> {
+    if (this.selectedRuleIds.length === 0) { return; }
+    try {
+      const count: number = await SearchSources.removeMany(this.selectedRuleIds);
+      this.selectedRuleIds = [];
+      this.refreshCustomRules();
+      this.showToast('已删除 ' + String(count) + ' 条线路');
+    } catch (error) {
+      this.showSourceError('批量删除失败：' + String(error));
+    }
+  }
+
+  /** 切换 DNS 解析模式并持久化。 */
+  /** 用当前 DNS 模式实测一次解析，并把结果写回界面。 */
+  private async probeDns(): Promise<void> {
+    this.dnsProbeResult = '正在测试…';
+    try {
+      const result: string = await DnsService.probe('https://www.baidu.com/');
+      this.dnsProbeResult = result;
+      this.showToast(result);
+      Logger.info('SETTING_DNS', 'DNS 测试结果：' + result);
+    } catch (error) {
+      this.dnsProbeResult = '测试失败：' + String(error);
+    }
+  }
+
+  private async changeDnsMode(mode: string): Promise<void> {
+    try {
+      await DnsService.setMode(mode);
+      this.dnsMode = DnsService.current();
+      this.showToast('DNS 已切换为：' + DnsService.label(this.dnsMode));
+    } catch (error) {
+      this.showSourceError('切换 DNS 失败：' + String(error));
+    }
+  }
+
+  private async addCustomRule(): Promise<void> {
+    if (this.savingCustomRule) { return; }
+    this.savingCustomRule = true;
+    this.customRuleHint = '';
+    try {
+      const item: SearchSource = await SearchSources.addCustom(this.customRuleName, this.customRuleUrl, '',
+        this.customRuleKind, this.customRuleRule);
+      this.refreshCustomRules();
+      this.customRuleName = '';
+      this.customRuleUrl = '';
+      this.customRuleHint = '已添加「' + item.name + '」，搜索页下一次搜索就会带上这条规则。';
+      this.showToast('自定义规则已添加');
+    } catch (error) {
+      Logger.error('SearchEngineLoad', '添加自定义规则失败：' + String(error));
+      this.customRuleHint = String(error);
+    } finally {
+      this.savingCustomRule = false;
+    }
+  }
+
+  /** 删除一条自定义规则。 */
+  private async removeCustomRule(id: number): Promise<void> {
+    try {
+      await SearchSources.removeCustom(id);
+      this.refreshCustomRules();
+      this.customRuleHint = '已删除该规则。';
+      this.showToast('已删除自定义规则');
+    } catch (error) {
+      Logger.error('SearchEngineLoad', '删除自定义规则失败：' + String(error));
+      this.customRuleHint = String(error);
+    }
+  }
+
+  /** 试连当前填写的接口，结果直接显示在提示行。 */
+  private async probeCustomRule(): Promise<void> {
+    const target: string = this.customRuleUrl.trim().length > 0 ? this.customRuleUrl.trim() : this.remoteAddress;
+    this.customRuleHint = '正在测试 ' + target + ' …';
+    this.customRuleHint = await SearchSources.probe(target);
+    Logger.info('SearchEngineLoad', '接口测试：' + this.customRuleHint);
   }
 
   // 只解析行内级别标签；旧日志或解析异常均以正文色显示。
@@ -534,8 +1198,14 @@ export struct SettingPage {
     }
   }
 
-  private navTabVisible(key: string): boolean {
-    return this.navTabKeys.includes(key);
+  private navTabVisible(key: string): boolean {    return this.navTabKeys.includes(key);
+  }
+
+  /** 界面尺寸预览里高亮哪个 Tab：与真实底栏一致，取当前页面在底栏中的位置。 */
+  private previewActiveIndex(): number {
+    const routes: string[] = NavTabs.sanitize(this.navTabKeys);
+    const found: number = routes.indexOf(this.currentPage);
+    return found >= 0 ? found : 0;
   }
 
   private navTabIndex(key: string): number {
@@ -585,6 +1255,12 @@ export struct SettingPage {
 
   // 切换设置分类：沿用原来的选中逻辑、回顶动作与日志记录。
   private selectMenu(title: string): void {
+    if (title === '更新日志') {
+      void router.pushUrl({ url: 'pages/UpdateLogPage' }).catch((error: Error) => {
+        Logger.error('SETTING_UPDATE_LOG', '打开更新日志失败：' + String(error));
+      });
+      return;
+    }
     this.activeMenu = title;
     this.pageScroller.scrollEdge(Edge.Top);
     Logger.info('BUTTON', '切换设置菜单：' + title);
@@ -652,14 +1328,20 @@ export struct SettingPage {
     Scroll() {
       Row({ space: '8vp' }) {
         this.menuChip('沉浸外观', SymbolIcons.palette())
+        this.menuChip('壁纸设置', SymbolIcons.image())
         this.menuChip('账号中心', SymbolIcons.wallet())
         this.menuChip('界面尺寸', SymbolIcons.category(false))
         this.menuChip('聊天提醒', SymbolIcons.bell())
         this.menuChip('底部导航', SymbolIcons.list())
         this.menuChip('无音影视后端', SymbolIcons.doc())
+        this.menuChip('图床设置', SymbolIcons.image())
+        this.menuChip('直链设置', SymbolIcons.terminal())
+        this.menuChip('帧数设置', SymbolIcons.play())
+        this.menuChip('音频管理', SymbolIcons.music())
         this.menuChip('播放器设置', SymbolIcons.play())
         this.menuChip('搜索源管理', SymbolIcons.search())
         this.menuChip('运行日志', SymbolIcons.list())
+        this.menuChip('更新日志', SymbolIcons.doc())
       }
         .padding({ top: '2vp', bottom: '2vp' })
     }
@@ -679,14 +1361,20 @@ export struct SettingPage {
         .width('100%')
         .padding({ left: '12vp', bottom: '6vp' })
       this.menuItem('沉浸外观', SymbolIcons.palette())
+      this.menuItem('壁纸设置', SymbolIcons.image())
       this.menuItem('账号中心', SymbolIcons.wallet())
       this.menuItem('界面尺寸', SymbolIcons.category(false))
       this.menuItem('聊天提醒', SymbolIcons.bell())
       this.menuItem('底部导航', SymbolIcons.list())
       this.menuItem('无音影视后端', SymbolIcons.doc())
+      this.menuItem('图床设置', SymbolIcons.image())
+      this.menuItem('直链设置', SymbolIcons.terminal())
+      this.menuItem('帧数设置', SymbolIcons.play())
+      this.menuItem('音频管理', SymbolIcons.music())
       this.menuItem('播放器设置', SymbolIcons.play())
       this.menuItem('搜索源管理', SymbolIcons.search())
       this.menuItem('运行日志', SymbolIcons.list())
+      this.menuItem('更新日志', SymbolIcons.doc())
     }
       .width('220vp')
       .padding('10vp')
@@ -756,42 +1444,6 @@ export struct SettingPage {
   }
 
   @Builder
-  private sliderRow(title: string, value: number, min: number, max: number, step: number,
-    changed: (value: number) => void) {
-    Column({ space: '6vp' }) {
-      Row({ space: '10vp' }) {
-        Text(title)
-          .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
-          .fontColor(Ui.ink(this.darkTheme))
-          .maxLines(1)
-          .layoutWeight(1)
-        Row() {
-          Text(value.toFixed(step < 1 ? 1 : 0))
-            .fontSize(Ui.fs('13vp', this.fontScale))
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Ui.accentStrong(this.darkTheme))
-        }
-          .height('26vp')
-          .padding({ left: '11vp', right: '11vp' })
-          .borderRadius('13vp')
-          .backgroundColor(Ui.accentSoft(this.darkTheme))
-          .border({ width: 1, color: Ui.glassRingAccent(this.darkTheme) })
-      }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
-      Slider({ value: value, min: min, max: max, step: step, style: SliderStyle.OutSet })
-        .blockColor(Ui.accentStrong(this.darkTheme))
-        .trackColor(Ui.glassTintSoft(this.darkTheme))
-        .selectedColor(Ui.accent(this.darkTheme))
-        .showSteps(false)
-        .onChange((current: number) => changed(current))
-    }
-      .width('100%')
-      .padding({ top: '12vp', bottom: '12vp' })
-      .constraintSize({ minHeight: 54 })
-  }
-
-  @Builder
   private actionButton(title: string, icon: Resource, action: () => void) {
     Row({ space: '5vp' }) {
       SymbolGlyph(icon)
@@ -828,7 +1480,7 @@ export struct SettingPage {
   // 玻璃胶囊输入框：高 46、圆角 23、软玻璃底，聚焦时换成品牌描边。
   @Builder
   private glassInput(field: string, text: string, placeholder: string, changed: (value: string) => void) {
-    TextInput({ text: text, placeholder: placeholder })
+      TextInput({ text: text, placeholder: placeholder })
       .width('100%')
       .height(46)
       .fontSize(Ui.fs('14vp', this.fontScale))
@@ -853,15 +1505,41 @@ export struct SettingPage {
       .animation({ duration: UiMotion.BASE, curve: Curve.FastOutSlowIn })
   }
 
+  /** API Key 输入框：固定密码态（圆点），不提供显示明文的入口。 */
+  @Builder
+  private glassKeyInput(field: string, text: string, placeholder: string,
+    changed: (value: string) => void) {
+    TextInput({ text: text, placeholder: placeholder })
+      .width('100%')
+      .height(46)
+      .type(InputType.Password)
+      .showPasswordIcon(false)
+      .fontSize(Ui.fs('14vp', this.fontScale))
+      .fontColor(Ui.ink(this.darkTheme))
+      .placeholderColor(Ui.inkFaint(this.darkTheme))
+      .caretColor(Ui.accent(this.darkTheme))
+      .backgroundColor(this.panelColor())
+      .borderRadius(23)
+      .border({
+        width: 1,
+        color: this.focusedField === field ? Ui.accentRing(this.darkTheme) : Ui.glassRingSoft(this.darkTheme)
+      })
+      .padding({ left: '16vp', right: '16vp' })
+      .onFocus(() => { this.focusedField = field; })
+      .onBlur(() => { this.focusedField = ''; })
+      .onChange((value: string) => changed(value))
+      .animation({ duration: UiMotion.BASE, curve: Curve.FastOutSlowIn })
+  }
+
   @Builder
   private sourcePanel() {
     Column() {
       this.panelHeader('搜索源管理', '自定义远端搜索源地址，或导入本地线路文件')
       this.rowDivider()
       Row() {
-        this.glassInput('source', this.remoteAddress, SearchSources.DEFAULT_ADDRESS, (value: string) => {
+        SettingField({ field: 'source', value: $remoteAddress, placeholder: 'https://你的接口地址（留空则只用导入/自定义规则）', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'source', onFocusChange: (on: boolean) => { this.focusedField = on ? 'source' : ''; }, onChange: (value: string) => {
           this.remoteAddress = value;
-        })
+        } })
       }
         .width('100%')
         .padding({ top: '12vp' })
@@ -877,6 +1555,237 @@ export struct SettingPage {
         .fontColor(Ui.inkFaint(this.darkTheme))
         .width('100%')
         .padding({ top: '10vp' })
+      this.rowDivider()
+      // 自定义规则：不依赖 JSON 文件，直接填名称 + 接口地址就能加一条搜索源。
+      Column({ space: '10vp' }) {
+        Row({ space: '8vp' }) {
+          Text('自定义规则')
+            .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Ui.ink(this.darkTheme))
+            .layoutWeight(1)
+          Text('导出全部')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(Ui.accentStrong(this.darkTheme))
+            .height('28vp')
+            .padding({ left: '10vp', right: '10vp' })
+            .borderRadius('14vp')
+            .backgroundColor(Ui.accentSoft(this.darkTheme))
+            .onClick(() => { void this.exportEnabledRules(); })
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.clearExportPressTimer();
+                this.exportPressTimer = setTimeout(() => {
+                  this.exportPressTimer = -1;
+                  this.exportLongPressAt = Date.now();
+                  void this.shareEnabledRules();
+                }, 3000);
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.clearExportPressTimer();
+              }
+            })
+          Text(String(this.customRules.length) + ' 条')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(Ui.accentStrong(this.darkTheme))
+        }
+          .width('100%')
+          .padding({ top: '12vp' })
+        if (this.customRules.length > 0) {
+        // 线路管理：支持勾选批量删除、批量启用/停用（停用的线路不参与搜索）。
+        Row({ space: '8vp' }) {
+          Text('全选')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(this.ruleManageMode ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .height('28vp')
+            .padding({ left: '10vp', right: '10vp' })
+            .borderRadius('14vp')
+            .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+            .onClick(() => {
+              this.ruleManageMode = !this.ruleManageMode;
+              this.selectedRuleIds = this.ruleManageMode ? this.customRules.map((item: SearchSource) => item.id) : [];
+            })
+          Blank()
+          if (this.ruleManageMode && this.selectedRuleIds.length > 0) {
+            Text('启用')
+              .fontSize(Ui.fs('11.5vp', this.fontScale))
+              .fontColor(Ui.accentStrong(this.darkTheme))
+              .height('28vp')
+              .padding({ left: '10vp', right: '10vp' })
+              .borderRadius('14vp')
+              .backgroundColor(Ui.accentSoft(this.darkTheme))
+              .onClick(() => { void this.setRulesEnabled(true); })
+            Text('停用')
+              .fontSize(Ui.fs('11.5vp', this.fontScale))
+              .fontColor(Ui.inkSoft(this.darkTheme))
+              .height('28vp')
+              .padding({ left: '10vp', right: '10vp' })
+              .borderRadius('14vp')
+              .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+              .onClick(() => { void this.setRulesEnabled(false); })
+            Text('删除(' + String(this.selectedRuleIds.length) + ')')
+              .fontSize(Ui.fs('11.5vp', this.fontScale))
+              .fontColor('#FF6B6B')
+              .height('28vp')
+              .padding({ left: '10vp', right: '10vp' })
+              .borderRadius('14vp')
+              .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+              .onClick(() => { void this.removeSelectedRules(); })
+          }
+        }
+          .width('100%')
+          .padding({ top: '8vp' })
+          .alignItems(VerticalAlign.Center)
+        if (this.customRules.length > 0) {
+          ForEach(this.customRules, (rule: SearchSource) => {
+            Row({ space: '8vp' }) {
+              if (this.ruleManageMode) {
+                SymbolGlyph(this.selectedRuleIds.indexOf(rule.id) >= 0
+                  ? $r('sys.symbol.checkmark_square_fill')
+                  : $r('sys.symbol.checkmark_square'))
+                  .fontSize(Ui.fs('20vp', this.fontScale))
+                  .fontColor([this.selectedRuleIds.indexOf(rule.id) >= 0
+                    ? Ui.accent(this.darkTheme)
+                    : Ui.inkSoft(this.darkTheme)])
+              }
+              Column({ space: '2vp' }) {
+                Text(rule.name + (!this.isRuleEnabled(rule) ? '（已停用）' : ''))
+                  .fontSize(Ui.fs('13.5vp', this.fontScale))
+                  .fontColor(!this.isRuleEnabled(rule) ? Ui.inkFaint(this.darkTheme) : Ui.ink(this.darkTheme))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                Text(rule.url)
+                  .fontSize(Ui.fs('10.5vp', this.fontScale))
+                  .fontColor(Ui.inkFaint(this.darkTheme))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+              }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+              // 单条开关：点一下在启用/停用之间切换。
+              Text(this.isRuleEnabled(rule) ? '停用' : '启用')
+                .fontSize(Ui.fs('11.5vp', this.fontScale))
+                .fontColor(!this.isRuleEnabled(rule) ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+                .height('26vp')
+                .padding({ left: '10vp', right: '10vp' })
+                .borderRadius('13vp')
+                .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+                .onClick(() => { void this.toggleRule(rule); })
+              Text('删除')
+                .fontSize(Ui.fs('11.5vp', this.fontScale))
+                .fontColor('#FF6B6B')
+                .height('26vp')
+                .padding({ left: '10vp', right: '10vp' })
+                .borderRadius('13vp')
+                .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+                .onClick(() => { void this.removeCustomRule(rule.id); })
+            }
+              .width('100%')
+              .padding('10vp')
+              .borderRadius('14vp')
+              .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+              .onClick(() => {
+                if (!this.ruleManageMode) { return; }
+                const index: number = this.selectedRuleIds.indexOf(rule.id);
+                if (index >= 0) {
+                  this.selectedRuleIds = this.selectedRuleIds.filter((id: number) => id !== rule.id);
+                } else {
+                  this.selectedRuleIds = this.selectedRuleIds.concat([rule.id]);
+                }
+              })
+          }, (rule: SearchSource) => 'custom-rule-' + rule.id)
+        }
+        }
+        this.rowDivider()
+        // DNS 解析：部分源站域名会被运营商 DNS 污染，切到 DoH 可恢复。
+        Column({ space: '8vp' }) {
+          Text('DNS 解析')
+            .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+          Text('部分源站域名会被运营商 DNS 污染，DoH 加密解析可修复；仅影响本应用的网络请求，不改系统 DNS。')
+            .fontSize(Ui.fs('11vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .maxLines(3)
+          ForEach([DnsMode.FOLLOW, DnsMode.OFF, DnsMode.ALIYUN, DnsMode.TENCENT], (mode: string) => {
+            Row({ space: '8vp' }) {
+              Text(DnsService.label(mode))
+                .fontSize(Ui.fs('13.5vp', this.fontScale))
+                .fontColor(this.dnsMode === mode ? Ui.accentStrong(this.darkTheme) : Ui.ink(this.darkTheme))
+                .layoutWeight(1)
+                .maxLines(1)
+              if (this.dnsMode === mode) {
+                Text('✓')
+                  .fontSize(Ui.fs('14vp', this.fontScale))
+                  .fontColor(Ui.accent(this.darkTheme))
+              }
+            }
+              .width('100%')
+              .height('38vp')
+              .padding({ left: '12vp', right: '12vp' })
+              .borderRadius('12vp')
+              .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => { void this.changeDnsMode(mode); })
+          }, (mode: string) => 'dns-mode-' + mode)
+          Row({ space: '10vp' }) {
+            GhostButton({ label: '测试解析', compact: true, onTap: (): void => { void this.probeDns(); } })
+          }
+            .width('100%')
+            .justifyContent(FlexAlign.End)
+            .padding({ top: '4vp' })
+          Text(this.dnsProbeResult.length > 0 ? this.dnsProbeResult : '点「测试解析」会用当前模式请求一次 www.baidu.com，用于确认 DoH 是否生效。')
+            .fontSize(Ui.fs('11vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .maxLines(3)
+        }
+          .width('100%')
+          .padding({ top: '12vp' })
+        this.rowDivider()
+        // 源类型：四类规则共用同一套列表
+        Row({ space: '8vp' }) {
+          ForEach(['cms', 'tvbox', 'web', 'netdisk'], (kind: string) => {
+            Text(SourceKind.label(kind))
+              .fontSize(Ui.fs('12vp', this.fontScale))
+              .fontColor(this.customRuleKind === kind ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+              .height('30vp')
+              .padding({ left: '12vp', right: '12vp' })
+              .borderRadius('15vp')
+              .backgroundColor(this.customRuleKind === kind ? Ui.accentSoft(this.darkTheme) : Ui.glassTintSoft(this.darkTheme))
+              .border({ width: 1, color: this.customRuleKind === kind ? Ui.accentRing(this.darkTheme) : Ui.glassRingSoft(this.darkTheme) })
+              .onClick(() => {
+                this.customRuleKind = kind;
+                this.customRuleHint = SourceKind.label(kind) + '规则：' + SettingPage.kindHint(kind);
+              })
+          }, (kind: string) => 'rule-kind-' + kind)
+        }
+          .width('100%')
+        SettingField({ field: 'custom-rule-name', value: $customRuleName, placeholder: '规则名称，例如：我的线路', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'custom-rule-name', onFocusChange: (on: boolean) => { this.focusedField = on ? 'custom-rule-name' : ''; }, onChange: (value: string) => {
+          this.customRuleName = value;
+        } })
+        SettingField({ field: 'custom-rule-url', value: $customRuleUrl, placeholder: '搜索接口地址，例如 https://api.xx.com/api.php/provide/vod/', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'custom-rule-url', onFocusChange: (on: boolean) => { this.focusedField = on ? 'custom-rule-url' : ''; }, onChange: (value: string) => {
+          this.customRuleUrl = value;
+        } })
+        SettingField({ field: 'custom-rule-json', value: $customRuleRule, placeholder: '高级规则 JSON（可选）：searchUrl / referer / mediaRegex / netdiskApi', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'custom-rule-json', onFocusChange: (on: boolean) => { this.focusedField = on ? 'custom-rule-json' : ''; }, onChange: (value: string) => { this.customRuleRule = value; } })
+        Row({ space: '10vp' }) {
+          GhostButton({ label: '测试连接', compact: true, onTap: (): void => { void this.probeCustomRule(); } })
+          GhostButton({ label: '导入 TVBox', compact: true, onTap: (): void => { void this.importTvbox(); } })
+          PrimaryButton({ label: '添加规则', compact: true, onTap: (): void => { void this.addCustomRule(); } })
+        }
+          .justifyContent(FlexAlign.End)
+        Text(this.customRuleHint.length > 0 ? this.customRuleHint :
+          '自定义规则与远端、导入线路并存；同名接口不会重复添加，冲突时以自定义规则为准。')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(this.customRuleHint.length > 0 ? Ui.accentStrong(this.darkTheme) : Ui.inkFaint(this.darkTheme))
+          .width('100%')
+          .maxLines(3)
+      }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
     }
       .width('100%')
       .padding(this.isTablet ? '20vp' : '16vp')
@@ -907,9 +1816,9 @@ export struct SettingPage {
         .alignItems(VerticalAlign.Center)
       Row({ space: '10vp' }) {
         Row() {
-          this.glassInput('domain', this.backendDomain, AppConfig.DEFAULT_BACKEND_DOMAIN, (value: string) => {
+          SettingField({ field: 'domain', value: $backendDomain, placeholder: AppConfig.DEFAULT_BACKEND_DOMAIN, darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'domain', onFocusChange: (on: boolean) => { this.focusedField = on ? 'domain' : ''; }, onChange: (value: string) => {
             this.backendDomain = value;
-          })
+          } })
         }
           .layoutWeight(1)
         PrimaryButton({ label: '保存域名', compact: true, onTap: (): void => { void this.saveBackendDomain(); } })
@@ -937,9 +1846,9 @@ export struct SettingPage {
         .alignItems(VerticalAlign.Center)
       Row({ space: '10vp' }) {
         Row() {
-          this.glassInput('account', this.backendAccount, AppConfig.DEFAULT_BACKEND_ACCOUNT, (value: string) => {
+          SettingField({ field: 'account', value: $backendAccount, placeholder: AppConfig.DEFAULT_BACKEND_ACCOUNT, darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'account', onFocusChange: (on: boolean) => { this.focusedField = on ? 'account' : ''; }, onChange: (value: string) => {
             this.backendAccount = value;
-          })
+          } })
         }
           .layoutWeight(1)
         PrimaryButton({ label: '保存账号', compact: true, onTap: (): void => { void this.saveBackendAccount(); } })
@@ -951,6 +1860,172 @@ export struct SettingPage {
         .fontColor(Ui.inkFaint(this.darkTheme))
         .width('100%')
         .padding({ top: '8vp' })
+    }
+      .width('100%')
+      .padding(this.isTablet ? '20vp' : '16vp')
+      .borderRadius(this.panelRadius)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .shadow({ radius: 18, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
+      .transition(TransitionEffect.OPACITY)
+  }
+
+  /** 图床设置：聊天发图默认走这里配置的上传接口，接口/字段名/返回路径都可改。 */
+  @Builder
+  private imageHostPanel() {
+    Column() {
+      this.panelHeader('图床设置', '聊天页发送图片时默认上传到这里；接口地址、表单参数和返回路径都可以自定义')
+      this.rowDivider()
+      Row({ space: '10vp' }) {
+        Text('接口地址')
+          .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Ui.ink(this.darkTheme))
+          .maxLines(1)
+          .layoutWeight(1)
+        GhostButton({ label: '恢复默认', compact: true, onTap: (): void => { void this.restoreImageHost(); } })
+      }
+        .width('100%')
+        .padding({ top: '12vp', bottom: '10vp' })
+        .constraintSize({ minHeight: 52 })
+        .alignItems(VerticalAlign.Center)
+      Row() {
+        SettingField({ field: 'imageHostUrl', value: $imageHostUrl, placeholder: ImageHostService.DEFAULT_UPLOAD_URL, darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'imageHostUrl', onFocusChange: (on: boolean) => { this.focusedField = on ? 'imageHostUrl' : ''; }, onChange: (value: string) => {
+          this.imageHostUrl = value;
+        } })
+      }
+        .width('100%')
+      Text('默认 https://naixiai.cn/api/1/upload（奶昔 Chevereto，已内置 key，单文件 ≤50MB）')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
+      this.rowDivider()
+      Text('表单字段名')
+        .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+        .padding({ top: '12vp', bottom: '10vp' })
+      Row() {
+        SettingField({ field: 'imageHostField', value: $imageHostField, placeholder: ImageHostService.DEFAULT_FIELD_NAME, darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'imageHostField', onFocusChange: (on: boolean) => { this.focusedField = on ? 'imageHostField' : ''; }, onChange: (value: string) => {
+          this.imageHostField = value;
+        } })
+      }
+        .width('100%')
+      Text('multipart/form-data 里承载文件二进制的那一项，奶昔 Chevereto 为 source')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
+      this.rowDivider()
+      Text('返回直链路径')
+        .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+        .padding({ top: '12vp', bottom: '10vp' })
+      Row() {
+        SettingField({ field: 'imageHostPath', value: $imageHostPath, placeholder: ImageHostService.DEFAULT_RESPONSE_PATH, darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'imageHostPath', onFocusChange: (on: boolean) => { this.focusedField = on ? 'imageHostPath' : ''; }, onChange: (value: string) => {
+          this.imageHostPath = value;
+        } })
+      }
+        .width('100%')
+      Text('返回 JSON 里直链所在位置，用点号分层，奶昔 Chevereto 为 image.url；留空表示接口直接返回纯文本直链')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
+      Text('奶昔实际是 Chevereto：地址 https://naixiai.cn/api/1/upload、字段 source、返回 image.url、key 走 X-API-Key 头。想要纯文本直链就在地址里加 ?format=txt 并把返回路径留空（程序会把 format 自动改成表单字段发送，直接放查询串会被奶昔判成空文件）。')
+        .fontSize(Ui.fs('11vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '6vp' })
+      this.rowDivider()
+      Row({ space: '10vp' }) {
+        Text('API Key（可选）')
+          .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Ui.ink(this.darkTheme))
+          .maxLines(1)
+          .layoutWeight(1)
+        GhostButton({ label: '填入奶昔 v1', compact: true, onTap: (): void => { this.applyNaishiPreset(); } })
+      }
+        .width('100%')
+        .padding({ top: '12vp', bottom: '10vp' })
+        .constraintSize({ minHeight: 52 })
+        .alignItems(VerticalAlign.Center)
+      Row() {
+        this.glassKeyInput('imageHostKey', this.imageHostKey, '匿名图床留空；Chevereto 填 chv_ 开头的 key', (value: string) => {
+          this.imageHostKey = value;
+        })
+      }
+        .width('100%')
+      Text('默认已内置一个奶昔 API Key，界面固定按密码态显示（不提供查看明文的入口）；非空时按 X-API-Key 请求头发送。奶昔是 Chevereto：「填入奶昔 v1」会把地址/字段/返回路径换成官方那组值（source + image.url）。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
+      this.rowDivider()
+      Text('直传代理（可选）')
+        .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+        .padding({ top: '12vp', bottom: '10vp' })
+      Row() {
+        SettingField({ field: 'imageHostProxy', value: $imageHostProxy, placeholder: 'https://api.y11.top/upload.php（留空则不用代理）', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'imageHostProxy', onFocusChange: (on: boolean) => { this.focusedField = on ? 'imageHostProxy' : ''; }, onChange: (value: string) => {
+          this.imageHostProxy = value;
+        } })
+      }
+        .width('100%')
+      Text('填了代理后，所有上传优先走代理：App 只把文件字节 POST 过去（octet-stream + X-File-Name 头），由服务端转投奶昔并回传直链。绕开客户端 multipart，视频/音频也能传，key 也可以留在服务端。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '8vp' })
+      this.rowDivider()
+      Text('接口返回 404 时，聊天页会提示改成手动填写直链；429 表示图床限流，稍后再传即可。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ top: '10vp', bottom: '10vp' })
+      Text('奶昔可传 jpg/png/gif/webp、mp4/webm/mov、mp3/wav/flac/m4a/ogg，单文件 ≤50MB；不含 exe/apk 一类可执行文件。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+        .padding({ bottom: '10vp' })
+      Row({ space: '10vp' }) {
+        GhostButton({
+          label: this.testingImageHost ? '测试中…' : '测试接口',
+          compact: true,
+          onTap: (): void => { void this.testImageHost(); }
+        })
+        Text('用上面填的值选一张图试传，不会保存配置')
+          .fontSize(Ui.fs('11.5vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .layoutWeight(1)
+          .maxLines(2)
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      if (this.imageHostTestText.length > 0) {
+        Text(this.imageHostTestText)
+          .fontSize(Ui.fs('11.5vp', this.fontScale))
+          .fontColor(this.imageHostTestOk ? Ui.accent(this.darkTheme) : Ui.danger(this.darkTheme))
+          .width('100%')
+          .maxLines(4)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .padding({ top: '8vp' })
+          .copyOption(CopyOptions.LocalDevice)
+      }
+      Row({ space: '10vp' }) {
+        GhostButton({ label: '恢复默认', compact: true, onTap: (): void => { void this.restoreImageHost(); } })
+        PrimaryButton({ label: '保存图床设置', compact: true, onTap: (): void => { void this.saveImageHost(); } })
+      }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .padding({ top: '12vp' })
     }
       .width('100%')
       .padding(this.isTablet ? '20vp' : '16vp')
@@ -1078,8 +2153,14 @@ export struct SettingPage {
       }
         .width('100%')
         .padding({ top: '12vp', bottom: '4vp' })
-      this.sliderRow('位置微调（vp）', Math.round(this.chatAlertOffset), 0, 200, 10, (value: number) => {
-        this.applyAlertPlacement(this.chatAlertPosition, value);
+      SettingSliderRow({
+        title: '位置微调（vp）',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: Math.round(this.chatAlertOffset),
+        minValue: 0,
+        maxValue: 200,
+        stepValue: 10,
+        onChanged: (value: number): void => { this.applyAlertPlacement(this.chatAlertPosition, value); }
       })
       this.rowDivider()
       Row({ space: '10vp' }) {
@@ -1110,15 +2191,28 @@ export struct SettingPage {
     Column() {
       this.panelHeader('界面尺寸', '自定义底部 Dock 栏大小与全局字体大小，拖动即时预览并自动保存')
       this.rowDivider()
-      this.sliderRow('Dock 栏大小（%）', Math.round(this.dockScale * 100), 85, 125, 5, (value: number) => {
-        this.applyUiScale(Math.round(value) / 100, this.fontScale);
+      SettingSliderRow({
+        title: 'Dock 栏大小（%）',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: Math.round(this.dockScale * 100),
+        minValue: 85,
+        maxValue: 125,
+        stepValue: 5,
+        onChanged: (value: number): void => { this.applyUiScale(value / 100, this.fontScale); }
       })
       this.rowDivider()
-      this.sliderRow('全局字体大小（%）', Math.round(this.fontScale * 100), 85, 130, 5, (value: number) => {
-        this.applyUiScale(this.dockScale, Math.round(value) / 100);
+      SettingSliderRow({
+        title: '全局字体大小（%）',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: Math.round(this.fontScale * 100),
+        minValue: 85,
+        maxValue: 130,
+        stepValue: 5,
+        onChanged: (value: number): void => { this.applyUiScale(this.dockScale, value / 100); }
       })
       this.rowDivider()
-      // 迷你底栏预览：高度随 Dock 缩放变化，图标与文字随全局字体缩放变化。
+      // 迷你底栏预览：Tab 顺序、图标、文字全部取自真实底栏（navTabKeys + SymbolIcons），
+      // 高度随 Dock 缩放变化，图标与文字随全局字体缩放变化。
       Column({ space: '6vp' }) {
         Row({ space: '8vp' }) {
           Text('预览')
@@ -1133,30 +2227,31 @@ export struct SettingPage {
         }
           .width('100%')
         Row() {
-          Row({ space: '5vp' }) {
-            Text('⌂').fontSize(Ui.fs('17vp', this.fontScale)).fontColor(Ui.accent(this.darkTheme))
-            Text('首页').fontSize(Ui.fs('10.5vp', this.fontScale)).fontColor(Ui.accent(this.darkTheme))
-          }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
-          Row({ space: '5vp' }) {
-            Text('▦').fontSize(Ui.fs('17vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme))
-            Text('分类').fontSize(Ui.fs('10.5vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme))
-          }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
-          Row({ space: '5vp' }) {
-            Text('◎').fontSize(Ui.fs('17vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme))
-            Text('设置').fontSize(Ui.fs('10.5vp', this.fontScale)).fontColor(Ui.inkFaint(this.darkTheme))
-          }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
+          ForEach(NavTabs.sanitize(this.navTabKeys), (route: string, index: number) => {
+            Column({ space: '2vp' }) {
+              SymbolGlyph(SymbolIcons.tab(route, this.previewActiveIndex() === index))
+                .fontSize(Ui.fs('16vp', this.fontScale))
+                .fontColor([this.previewActiveIndex() === index ?
+                  Ui.accentStrong(this.darkTheme) : Ui.inkFaint(this.darkTheme)])
+              Text(NavTabs.title(route))
+                .fontSize(Ui.fs('9.5vp', this.fontScale))
+                .fontWeight(this.previewActiveIndex() === index ? FontWeight.Bold : FontWeight.Medium)
+                .fontColor(this.previewActiveIndex() === index ?
+                  Ui.accentStrong(this.darkTheme) : Ui.inkFaint(this.darkTheme))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+              .layoutWeight(1)
+              .justifyContent(FlexAlign.Center)
+          }, (route: string) => 'ui-scale-preview-' + route)
         }
           .width('100%')
-          .height(Math.round(56 * Ui.dockScale(this.dockScale)))
-          .borderRadius(Math.round(56 * Ui.dockScale(this.dockScale)) / 2)
+          .height(Math.round(58 * Ui.dockScale(this.dockScale)))
+          .padding({ left: '4vp', right: '4vp' })
+          .borderRadius(Math.round(58 * Ui.dockScale(this.dockScale)) / 2)
           .backgroundColor(Ui.glassTint(this.darkTheme))
           .border({ width: 1, color: Ui.glassRing(this.darkTheme) })
+          .clip(true)
       }
         .width('100%')
         .padding({ top: '12vp', bottom: '4vp' })
@@ -1174,6 +2269,426 @@ export struct SettingPage {
         .fontColor(Ui.inkFaint(this.darkTheme))
         .width('100%')
         .padding({ top: '10vp' })
+    }
+      .width('100%')
+      .padding(this.isTablet ? '20vp' : '16vp')
+      .borderRadius(this.panelRadius)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .shadow({ radius: 18, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
+      .transition(TransitionEffect.OPACITY)
+  }
+
+  /** 壁纸设置：本地导入背景 + 透明度 / 播放速率 / 动态背景帧率。 */
+  @Builder
+  private wallpaperPanel() {
+    Column({ space: '10vp' }) {
+      this.panelHeader('壁纸设置',
+        '除播放器外的全部页面共用一张背景：本地视频 / 动图 / 图片，或内置渐变壁纸')
+      Row({ space: '10vp' }) {
+        Column({ space: '2vp' }) {
+          Text('当前背景')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+          Text(this.wallpaperSummary())
+            .fontSize(Ui.fs(this.isTablet ? '16vp' : '14.5vp', this.fontScale))
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        GhostButton({ label: '壁纸库', compact: true, onTap: (): void => { this.openWallpaperPage(); } })
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      this.rowDivider()
+      Row({ space: '8vp' }) {
+        PrimaryButton({ label: this.wallpaperImporting ? '导入中…' : '导入本地背景', compact: true,
+          onTap: (): void => { void this.importWallpaper(); } })
+        Text('mp4 / gif / jpg / png / webp，支持 Wallpaper Engine 导出的文件；导入后复制进应用私有目录')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .lineHeight(this.isTablet ? '17vp' : '15.5vp')
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .layoutWeight(1)
+          .maxLines(3)
+        if (this.wallpaperImporting) {
+          LoadingProgress().width('20vp').height('20vp').color(Ui.accent(this.darkTheme))
+        }
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      this.switchRow('动态播放',
+        '关闭后视频 / 动图背景停在首帧，静态图片背景不受影响', this.wallpaperMotion,
+        (value: boolean) => {
+          WallpaperService.setMotion(value);
+          Logger.info('BUTTON', value ? '开启动态背景' : '暂停动态背景');
+        })
+      this.rowDivider()
+      SettingSliderRow({
+        title: '背景透明度（%）',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: Math.round(this.wallpaperOpacity * 100),
+        minValue: Math.round(WallpaperService.OPACITY_MIN * 100),
+        maxValue: 100,
+        stepValue: 5,
+        onChanged: (value: number): void => { WallpaperService.setOpacity(value / 100); }
+      })
+      this.rowDivider()
+      SettingSliderRow({
+        title: '播放速率（0.5 / 1 / 1.5x）',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        valueText: WallpaperService.rateLabel(this.wallpaperRate),
+        value: this.wallpaperRate,
+        minValue: 0.5,
+        maxValue: 1.5,
+        stepValue: 0.5,
+        onChanged: (value: number): void => { WallpaperService.setRate(value); }
+      })
+      this.rowDivider()
+      Row({ space: '8vp' }) {
+        Text('动态背景帧率')
+          .fontSize(Ui.fs('13.5vp', this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+          .layoutWeight(1)
+        Text(WallpaperService.frameLabel(this.wallpaperFrameHz))
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+        ForEach(WallpaperService.FRAME_OPTIONS, (hz: number) => {
+          Text(hz <= 0 ? '跟随系统' : String(hz) + 'Hz')
+            .fontSize(Ui.fs('12.5vp', this.fontScale))
+            .fontColor(this.wallpaperFrameHz === hz ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .height('34vp')
+            .padding({ left: '14vp', right: '14vp' })
+            .borderRadius('17vp')
+            .backgroundColor(this.wallpaperFrameHz === hz ?
+              Ui.accentSoft(this.darkTheme) : Ui.glassTintSoft(this.darkTheme))
+            .border({
+              width: 1,
+              color: this.wallpaperFrameHz === hz ? Ui.accentRing(this.darkTheme) : Color.Transparent
+            })
+            .margin({ right: '8vp', bottom: '8vp' })
+            .onClick(() => { WallpaperService.setFrameHz(hz); })
+        }, (hz: number) => 'setting-background-frame-' + String(hz))
+      }
+        .width('100%')
+      Text('「跟随系统」不额外限制刷新率；选 24 / 30 / 60Hz 时，动态背景播放期间向系统申请该帧率上限，' +
+        '暂停动效或改用静态图片背景后自动恢复。播放器页仍使用「帧数设置」里的播放器帧率。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .lineHeight(this.isTablet ? '18vp' : '16vp')
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+      Row({ space: '8vp' }) {
+        GhostButton({ label: '打开壁纸瀑布流', compact: true, onTap: (): void => { this.openWallpaperPage(); } })
+        GhostButton({ label: '恢复默认背景', compact: true, onTap: (): void => { this.clearWallpaper(); } })
+      }
+        .width('100%')
+    }
+      .width('100%')
+      .padding(this.isTablet ? '20vp' : '16vp')
+      .borderRadius(this.panelRadius)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .shadow({ radius: 18, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
+      .transition(TransitionEffect.OPACITY)
+  }
+
+  /** 音频管理：本地录音列表 + 自动清理策略。 */
+  /** 帧数设置：整机软件帧率 + 播放器帧率，均可跟随系统。 */
+  @Builder
+  private frameRatePanel() {
+    Column({ space: '10vp' }) {
+      this.panelHeader('帧数设置', '向系统申请屏幕刷新率；开启「跟随系统」时交还系统自适应')
+      Row({ space: '10vp' }) {
+        Column({ space: '2vp' }) {
+          Text('跟随系统')
+            .fontSize(Ui.fs('13.5vp', this.fontScale))
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+          Text('开启后不申请固定刷新率，省电优先')
+            .fontSize(Ui.fs('11vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.frameFollowSystem })
+          .selectedColor(Ui.accent(this.darkTheme))
+          .onChange((isOn: boolean) => {
+            this.frameFollowSystem = isOn;
+            // 只重新探测设备刷新率上限；不能在这里调用 refreshFrameRate()——
+            // 它会重新读取已保存配置，把刚切换的开关立刻弹回原值（表现为开关点不动）。
+            FrameRateService.refreshCapability();
+            this.frameMaxHz = FrameRateService.maxSupportedHz();
+          })
+      }
+        .width('100%')
+      this.rowDivider()
+      Text('软件帧率')
+        .fontSize(Ui.fs('13.5vp', this.fontScale))
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+        ForEach(FrameRateService.APP_OPTIONS, (hz: number) => {
+          Text(String(hz) + 'Hz')
+            .fontSize(Ui.fs('12.5vp', this.fontScale))
+            .fontColor(this.frameAppHz === hz ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .height('34vp')
+            .padding({ left: '14vp', right: '14vp' })
+            .borderRadius('17vp')
+            .backgroundColor(this.frameAppHz === hz ? Ui.accentSoft(this.darkTheme) : Ui.glassTintSoft(this.darkTheme))
+            .border({
+              width: 1,
+              color: !this.frameRateSupported(hz) ? Ui.divider(this.darkTheme)
+                : (this.frameAppHz === hz ? Ui.accentRing(this.darkTheme) : Color.Transparent)
+            })
+            .margin({ right: '8vp', bottom: '8vp' })
+            .opacity(this.frameFollowSystem || !this.frameRateSupported(hz) ? 0.45 : 1)
+            .onClick(() => {
+              if (!this.frameRateSupported(hz)) {
+                this.showToast('当前设备暂不支持 ' + String(hz) + 'Hz' +
+                  (this.frameMaxHz > 0 ? '，最高 ' + String(this.frameMaxHz) + 'Hz' : ''));
+                return;
+              }
+              if (this.frameFollowSystem) {
+                this.showToast('已开启「跟随系统」，先关闭再选软件帧率');
+                return;
+              }
+              this.frameAppHz = hz;
+            })
+        }, (hz: number) => 'app-' + String(hz))
+      }
+        .width('100%')
+      Row({ space: '8vp' }) {
+        Text('播放器帧率')
+          .fontSize(Ui.fs('13.5vp', this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+        Text(this.frameFollowSystem
+          ? (this.frameMaxHz > 0 ? '跟随系统上限 ' + String(this.frameMaxHz) + 'Hz' : '跟随系统')
+          : (this.frameMaxHz > 0 ? '设备上限 ' + String(this.frameMaxHz) + 'Hz' : '未限制'))
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+        ForEach(FrameRateService.PLAYER_OPTIONS, (hz: number) => {
+          Text(String(hz) + 'Hz')
+            .fontSize(Ui.fs('12.5vp', this.fontScale))
+            .fontColor(this.framePlayerHz === hz ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .height('34vp')
+            .padding({ left: '14vp', right: '14vp' })
+            .borderRadius('17vp')
+            .backgroundColor(this.framePlayerHz === hz ? Ui.accentSoft(this.darkTheme) : Ui.glassTintSoft(this.darkTheme))
+            .border({
+              width: 1,
+              color: !this.frameRateSupported(hz) ? Ui.divider(this.darkTheme)
+                : (this.framePlayerHz === hz ? Ui.accentRing(this.darkTheme) : Color.Transparent)
+            })
+            .margin({ right: '8vp', bottom: '8vp' })
+            .opacity(!this.frameRateSupported(hz) ? 0.45 : 1)
+            .onClick(() => {
+              if (!this.frameRateSupported(hz)) {
+                this.showToast('当前设备暂不支持 ' + String(hz) + 'Hz' +
+                  (this.frameMaxHz > 0 ? '，最高 ' + String(this.frameMaxHz) + 'Hz' : ''));
+                return;
+              }
+              this.framePlayerHz = hz;
+            })
+        }, (hz: number) => 'player-' + String(hz))
+      }
+        .width('100%')
+      Text((this.frameMaxHz > 0 ? '本机最高支持 ' + String(this.frameMaxHz) + 'Hz，超出的挡位置灰不可选。' : '') +
+        '软件帧率作用于整个 App，受「跟随系统」开关控制；播放器帧率默认 60Hz、挡位 60~185Hz，独立生效' +
+        '（进入播放页切换到播放器帧率，离开后恢复软件帧率）。部分机型对 120Hz 以上有系统级上限，实际以系统调度为准。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+      Row({ space: '10vp' }) {
+        PrimaryButton({ label: '保存帧数设置', compact: true, onTap: (): void => { void this.saveFrameRate(); } })
+        Text('默认跟随系统开启、软件与播放器均为 60Hz')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .layoutWeight(1)
+          .maxLines(2)
+      }
+        .width('100%')
+    }
+      .width('100%')
+      .padding(this.isTablet ? '20vp' : '16vp')
+      .borderRadius(this.panelRadius)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .shadow({ radius: 18, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
+      .transition(TransitionEffect.OPACITY)
+  }
+
+  /** 直链设置：dbimg（免费 75MB、支持 wav/mp3/m4a），语音消息走它。 */
+  @Builder
+  private directPanel() {
+    Column({ space: '10vp' }) {
+      this.panelHeader('直链设置', '语音消息上传到 dbimg 并取直链；图片、视频仍走「图床设置」里的奶昔，互不影响')
+      Text('接口地址')
+        .fontSize(Ui.fs('13vp', this.fontScale))
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+      Row() {
+        SettingField({ field: 'directUrl', value: $directUrl, placeholder: 'https://dbimg.app/api/upload', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'directUrl', onFocusChange: (on: boolean) => { this.focusedField = on ? 'directUrl' : ''; }, onChange: (value: string) => {
+          this.directUrl = value;
+        } })
+      }
+        .width('100%')
+      Text('API Key（Bearer）')
+        .fontSize(Ui.fs('13vp', this.fontScale))
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+        .padding({ top: '4vp' })
+      Row() {
+        this.glassKeyInput('directKey', this.directKey, 'dbimg_xxxxxxxx', (value: string) => {
+          this.directKey = value;
+        })
+      }
+        .width('100%')
+      Text('dbimg 的开放接口：POST /api/upload，字段 file，请求头 Authorization: Bearer <key>；' +
+        '返回里的 mediaUrl 就是 CDN 直链。免费账号 75MB/文件、每天 200 次请求、3 把 Key。' +
+        '它只收图片/视频/音频，pdf/zip 这类文件仍由奶昔处理。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+      Row({ space: '10vp' }) {
+        GhostButton({ label: '填入 dbimg 默认', compact: true, onTap: (): void => { this.useDbimgDefaults(); } })
+        GhostButton({ label: '保存', compact: true, onTap: (): void => { void this.saveDirect(); } })
+      }
+        .width('100%')
+    }
+      .width('100%')
+      .padding(this.isTablet ? '20vp' : '16vp')
+      .borderRadius(this.panelRadius)
+      .backgroundColor(Ui.card(this.darkTheme))
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .shadow({ radius: 18, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
+      .transition(TransitionEffect.OPACITY)
+  }
+
+  @Builder
+  private voicePanel() {
+    Column({ space: '10vp' }) {
+      this.panelHeader('音频管理', '聊天室录下的语音存在应用私有目录，可按条删除，也可以让它按数量/天数自动清理')
+      Row({ space: '10vp' }) {
+        Text(this.voiceStat())
+          .fontSize(Ui.fs('12.5vp', this.fontScale))
+          .fontColor(Ui.inkSoft(this.darkTheme))
+          .layoutWeight(1)
+        GhostButton({ label: '立即清理', compact: true, onTap: (): void => { this.cleanVoiceNow(); } })
+        GhostButton({ label: '清空', compact: true, onTap: (): void => { this.clearVoiceFiles(); } })
+      }
+        .width('100%')
+      if (this.voiceFiles.length === 0) {
+        Text('还没有本地语音')
+          .fontSize(Ui.fs('12vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .width('100%')
+          .padding({ top: '10vp', bottom: '10vp' })
+      } else {
+        List({ space: '6vp' }) {
+          ForEach(this.voiceFiles, (file: VoiceFile) => {
+            ListItem() {
+              Row({ space: '10vp' }) {
+                SymbolGlyph(SymbolIcons.music())
+                  .fontSize(Ui.fs('16vp', this.fontScale))
+                  .fontColor([Ui.accentStrong(this.darkTheme)])
+                Column({ space: '2vp' }) {
+                  Text(file.name)
+                    .fontSize(Ui.fs('11.5vp', this.fontScale))
+                    .fontColor(Ui.ink(this.darkTheme))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                  Text(VoiceStore.formatTime(file.modified) + ' · ' + VoiceStore.formatSize(file.size))
+                    .fontSize(Ui.fs('10vp', this.fontScale))
+                    .fontColor(Ui.inkFaint(this.darkTheme))
+                    .width('100%')
+                }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                Text('删除')
+                  .fontSize(Ui.fs('11vp', this.fontScale))
+                  .fontColor(Ui.gold(this.darkTheme))
+                  .padding({ left: '8vp', right: '8vp', top: '3vp', bottom: '3vp' })
+                  .borderRadius('10vp')
+                  .backgroundColor(Ui.goldSoft(this.darkTheme))
+                  .onClick((): void => { this.deleteVoiceFile(file.name); })
+              }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+            }
+          }, (file: VoiceFile) => 'voice-' + file.name)
+        }
+          .width('100%')
+          .height('220vp')
+      }
+      this.rowDivider()
+      Row({ space: '10vp' }) {
+        Text('自动清理')
+          .fontSize(Ui.fs('13vp', this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+          .layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.voiceAutoClean })
+          .onChange((isOn: boolean) => { this.voiceAutoClean = isOn; })
+      }
+        .width('100%')
+      // 两个输入框并排：各自放在带权重的 Column 里，否则两个 width('100%') 的输入框
+      // 会把整张卡片撑得比屏幕还宽（右侧被裁掉）。
+      Row({ space: '10vp' }) {
+        Column({ space: '6vp' }) {
+          Text('保留天数（0 = 不限）')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          SettingField({ field: 'voiceKeepDays', value: $voiceKeepDays, placeholder: '默认 7', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'voiceKeepDays', onFocusChange: (on: boolean) => { this.focusedField = on ? 'voiceKeepDays' : ''; }, onChange: (value: string) => {
+            this.voiceKeepDays = value;
+          } })
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        Column({ space: '6vp' }) {
+          Text('数量上限')
+            .fontSize(Ui.fs('11.5vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .maxLines(1)
+          SettingField({ field: 'voiceMaxCount', value: $voiceMaxCount, placeholder: '默认 20', darkTheme: this.darkTheme, fontScale: this.fontScale, focused: this.focusedField === 'voiceMaxCount', onFocusChange: (on: boolean) => { this.focusedField = on ? 'voiceMaxCount' : ''; }, onChange: (value: string) => {
+            this.voiceMaxCount = value;
+          } })
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+      Text('数量超过上限时一次删掉最旧的 ' + String(VoiceStore.BATCH) + ' 条；默认保留 ' +
+        String(VoiceStore.DEFAULT_DAYS) + ' 天、最多 ' + String(VoiceStore.DEFAULT_MAX) + ' 条。')
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.darkTheme))
+        .width('100%')
+      Row({ space: '10vp' }) {
+        GhostButton({ label: '保存设置', compact: true, onTap: (): void => { void this.saveVoiceSettings(); } })
+        Text('录音文件按 mp3 存在私有目录，上传前会临时复制成 .mp4 再传')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .layoutWeight(1)
+          .maxLines(2)
+      }
+        .width('100%')
     }
       .width('100%')
       .padding(this.isTablet ? '20vp' : '16vp')
@@ -1221,6 +2736,30 @@ export struct SettingPage {
         .padding({ top: '12vp', bottom: '12vp' })
         .constraintSize({ minHeight: 52 })
         .alignItems(VerticalAlign.Center)
+      this.rowDivider()
+      // 广告拦截：点击打开与播放器风格一致的说明/开关弹窗。
+      Row({ space: '10vp' }) {
+        Column({ space: '3vp' }) {
+          Text('广告拦截')
+            .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+          Text(this.adBlockEnabled ? '已开启：按规则清洗播放地址，并过滤 m3u8 广告分片' :
+            '已关闭：播放时使用原始地址，不做广告过滤')
+            .fontSize(Ui.fs(this.isTablet ? '12.5vp' : '11.5vp', this.fontScale))
+            .lineHeight(this.isTablet ? '18vp' : '16vp')
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        GhostButton({ label: '设置', compact: true, onTap: (): void => { this.showAdBlockDialog = true; } })
+      }
+        .width('100%')
+        .padding({ top: '12vp', bottom: '12vp' })
+        .constraintSize({ minHeight: 52 })
+        .alignItems(VerticalAlign.Center)
     }
       .width('100%')
       .padding(this.isTablet ? '20vp' : '16vp')
@@ -1234,8 +2773,8 @@ export struct SettingPage {
   @Builder
   private appearancePanel() {
     Column() {
-      this.panelHeader('沉浸外观', '调整全局页面的毛玻璃强度、透明度与主题配色')
-      this.switchRow('开启全局毛玻璃沉浸', '关闭后所有页面取消 backdropBlur 效果', this.immersiveEnabled,
+      this.panelHeader('沉浸外观', '调整 Dock 栏透明度、面板透明度与主题配色')
+      this.switchRow('开启全局 Dock 栏沉浸', '关闭后所有页面取消 backdropBlur 效果', this.immersiveEnabled,
         (value: boolean) => {
           this.immersiveEnabled = value;
           this.updateConfig();
@@ -1253,14 +2792,30 @@ export struct SettingPage {
           Logger.info('BUTTON', value ? '开启导航局部取色' : '关闭导航局部取色');
         })
       this.rowDivider()
-      this.sliderRow('毛玻璃模糊强度', this.immersiveBlur, 0, 50, 1, (value: number) => {
-        this.immersiveBlur = Math.round(value);
-        this.updateConfig();
+      SettingSliderRow({
+        title: 'Dock 栏透明度',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: this.immersiveBlur,
+        minValue: 0,
+        maxValue: 50,
+        stepValue: 1,
+        onChanged: (value: number): void => {
+          this.immersiveBlur = Math.round(value);
+          this.updateConfig();
+        }
       })
       this.rowDivider()
-      this.sliderRow('沉浸面板透明度', this.immersiveOpacity, 0.1, 1.0, 0.1, (value: number) => {
-        this.immersiveOpacity = Number(value.toFixed(1));
-        this.updateConfig();
+      SettingSliderRow({
+        title: '沉浸面板透明度',
+        titleSize: this.isTablet ? '16vp' : '15vp',
+        value: this.immersiveOpacity,
+        minValue: 0.1,
+        maxValue: 1.0,
+        stepValue: 0.1,
+        onChanged: (value: number): void => {
+          this.immersiveOpacity = Number(value.toFixed(1));
+          this.updateConfig();
+        }
       })
       this.rowDivider()
       Row({ space: '10vp' }) {
@@ -1279,7 +2834,7 @@ export struct SettingPage {
               indicatorColor: Ui.inkOnMedia(this.darkTheme)
             })
             .onChange((checked: boolean) => {
-              if (checked) { this.darkTheme = true; this.updateConfig(); }
+              if (checked) { void AppState.setThemeMode('dark'); }
             })
           Text('深色主题').fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.secondaryText()).maxLines(1)
         }
@@ -1292,7 +2847,7 @@ export struct SettingPage {
               indicatorColor: Ui.inkOnMedia(this.darkTheme)
             })
             .onChange((checked: boolean) => {
-              if (checked) { this.darkTheme = false; this.updateConfig(); }
+              if (checked) { void AppState.setThemeMode('light'); }
             })
           Text('浅色主题').fontSize(Ui.fs('13vp', this.fontScale)).fontColor(this.secondaryText()).maxLines(1)
         }
@@ -1424,6 +2979,110 @@ export struct SettingPage {
         .fontColor(Ui.inkFaint(this.darkTheme))
         .width('100%')
         .padding({ top: '8vp' })
+      this.rowDivider()
+      // Dock 栏外观：三种样式 + 强度 + 低电量自适应。
+      Text('Dock 栏外观')
+        .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Ui.ink(this.darkTheme))
+        .width('100%')
+        .padding({ top: '4vp', bottom: '8vp' })
+      ForEach(DockStyleStore.OPTIONS, (option: DockStyleOption) => {
+        Row({ space: '10vp' }) {
+          Column({ space: '2vp' }) {
+            Text(option.title)
+              .fontSize(Ui.fs('13.5vp', this.fontScale))
+              .fontWeight(this.dockStyleKey === option.key ? FontWeight.Bold : FontWeight.Medium)
+              .fontColor(this.dockStyleKey === option.key ? Ui.accentStrong(this.darkTheme) : Ui.ink(this.darkTheme))
+              .width('100%')
+            Text(option.desc)
+              .fontSize(Ui.fs('11vp', this.fontScale))
+              .fontColor(Ui.inkFaint(this.darkTheme))
+              .width('100%')
+              .maxLines(2)
+          }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          Text(this.dockStyleKey === option.key ? '已选' : '选择')
+            .fontSize(Ui.fs('11vp', this.fontScale))
+            .fontColor(this.dockStyleKey === option.key ? Ui.accentStrong(this.darkTheme) : Ui.inkSoft(this.darkTheme))
+            .height('26vp')
+            .padding({ left: '10vp', right: '10vp' })
+            .borderRadius('13vp')
+            .backgroundColor(this.dockStyleKey === option.key ? Ui.accentSoft(this.darkTheme) : Ui.glassTintSoft(this.darkTheme))
+            .textAlign(TextAlign.Center)
+        }
+          .width('100%')
+          .padding({ top: '6vp', bottom: '6vp' })
+          .onClick(() => { this.dockStyleKey = option.key; })
+      }, (option: DockStyleOption) => option.key)
+      Row({ space: '10vp' }) {
+        Text('强度')
+          .fontSize(Ui.fs('13vp', this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+        Slider({ value: this.dockIntensity, min: 0, max: 100, step: 5, style: SliderStyle.InSet })
+          .layoutWeight(1)
+          .trackColor(Ui.glassRing(this.darkTheme))
+          .selectedColor(Ui.accent(this.darkTheme))
+          .blockColor(Ui.accentStrong(this.darkTheme))
+          .onChange((value: number) => { this.dockIntensity = Math.round(value); })
+        Text(String(this.dockIntensity) + '%')
+          .fontSize(Ui.fs('12vp', this.fontScale))
+          .fontColor(Ui.inkSoft(this.darkTheme))
+          .width('42vp')
+          .textAlign(TextAlign.End)
+      }
+        .width('100%')
+        .padding({ top: '6vp' })
+      Row({ space: '10vp' }) {
+        Column({ space: '2vp' }) {
+          Text('低电量自动降低强度')
+            .fontSize(Ui.fs('13vp', this.fontScale))
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+          Text('当前电量 ' + String(this.dockBatteryNow) + '%，低于阈值后模糊与光感按比例减弱（最低 35%）')
+            .fontSize(Ui.fs('11vp', this.fontScale))
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+            .maxLines(2)
+        }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.dockBatteryAuto })
+          .onChange((isOn: boolean) => { this.dockBatteryAuto = isOn; })
+      }
+        .width('100%')
+        .padding({ top: '8vp' })
+      // 电量阈值：10 间断点的进度条（0/10/…/100），直接拖动选择。
+      Row({ space: '10vp' }) {
+        Text('电量阈值')
+          .fontSize(Ui.fs('13vp', this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+        Slider({ value: Number(this.dockThreshold), min: 0, max: 100, step: 10, style: SliderStyle.InSet })
+          .layoutWeight(1)
+          .trackColor(Ui.glassRing(this.darkTheme))
+          .selectedColor(Ui.accent(this.darkTheme))
+          .blockColor(Ui.accentStrong(this.darkTheme))
+          .showSteps(true)
+          .onChange((value: number) => { this.dockThreshold = String(Math.round(value)); })
+        Text(String(Math.round(Number(this.dockThreshold))) + '%')
+          .fontSize(Ui.fs('12vp', this.fontScale))
+          .fontColor(Ui.inkSoft(this.darkTheme))
+          .width('42vp')
+          .textAlign(TextAlign.End)
+      }
+        .width('100%')
+        .padding({ top: '6vp' })
+      Row({ space: '10vp' }) {
+        PrimaryButton({ label: '保存 Dock 外观', compact: true, onTap: (): void => { void this.saveDockStyle(); } })
+        Text('默认液态玻璃、强度 70%、电量低于 20% 自动降级')
+          .fontSize(Ui.fs('11vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.darkTheme))
+          .layoutWeight(1)
+          .maxLines(2)
+      }
+        .width('100%')
+        .padding({ top: '8vp' })
     }
       .width('100%')
       .padding(this.isTablet ? '20vp' : '16vp')
@@ -1510,6 +3169,8 @@ export struct SettingPage {
       this.logPanel()
     } else if (this.activeMenu === '账号中心') {
       this.accountPanel()
+    } else if (this.activeMenu === '壁纸设置') {
+      this.wallpaperPanel()
     } else if (this.activeMenu === '界面尺寸') {
       this.uiScalePanel()
     } else if (this.activeMenu === '聊天提醒') {
@@ -1518,6 +3179,14 @@ export struct SettingPage {
       this.navTabsPanel()
     } else if (this.activeMenu === '无音影视后端') {
       this.backendConfigPanel()
+    } else if (this.activeMenu === '图床设置') {
+      this.imageHostPanel()
+    } else if (this.activeMenu === '直链设置') {
+      this.directPanel()
+    } else if (this.activeMenu === '帧数设置') {
+      this.frameRatePanel()
+    } else if (this.activeMenu === '音频管理') {
+      this.voicePanel()
     } else if (this.activeMenu === '播放器设置') {
       this.playerPanel()
     } else if (this.activeMenu === '搜索源管理') {
@@ -1635,6 +3304,82 @@ export struct SettingPage {
     }
   }
 
+  /**
+   * 广告拦截弹窗：标题 + 说明 + 总开关 + 异常回退提示 + 取消。
+   * 开关改动立即持久化，下一集 / 下一条线路开始生效。
+   */
+  @Builder
+  private adBlockDialog() {
+    if (this.showAdBlockDialog) {
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Ui.scrim(this.darkTheme))
+          .onClick(() => { this.showAdBlockDialog = false; })
+        Column({ space: '12vp' }) {
+          Text('广告拦截')
+            .fontSize(Ui.fs(this.isTablet ? '21vp' : '19vp', this.fontScale))
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Ui.ink(this.darkTheme))
+            .width('100%')
+          Text('按配置规则清洗播放地址，并通过本地代理过滤 m3u8 广告分片')
+            .fontSize(Ui.fs(this.isTablet ? '14vp' : '13vp', this.fontScale))
+            .lineHeight(this.isTablet ? '22vp' : '20vp')
+            .fontColor(this.secondaryText())
+            .width('100%')
+          this.rowDivider()
+          Row({ space: '10vp' }) {
+            Column({ space: '2vp' }) {
+              Text('开启拦截')
+                .fontSize(Ui.fs(this.isTablet ? '16vp' : '15vp', this.fontScale))
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Ui.ink(this.darkTheme))
+                .width('100%')
+              Text(this.adBlockEnabled ? 'm3u8 播放时经本地代理过滤广告分片' : '使用原始播放地址直连')
+                .fontSize(Ui.fs(this.isTablet ? '12.5vp' : '11.5vp', this.fontScale))
+                .fontColor(Ui.inkFaint(this.darkTheme))
+                .width('100%')
+            }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.adBlockEnabled })
+              .selectedColor(Ui.accent(this.darkTheme))
+              .onChange((value: boolean) => {
+                void AdBlockService.setEnabled(value);
+                Logger.info('BUTTON', value ? '开启广告拦截' : '关闭广告拦截');
+              })
+          }
+            .width('100%')
+            .padding({ top: '4vp', bottom: '4vp' })
+            .alignItems(VerticalAlign.Center)
+          Text('关闭后如遇播放异常可重新开启；拦截异常时会自动回退原始地址播放')
+            .fontSize(Ui.fs(this.isTablet ? '12.5vp' : '11.5vp', this.fontScale))
+            .lineHeight(this.isTablet ? '19vp' : '17vp')
+            .fontColor(Ui.inkFaint(this.darkTheme))
+            .width('100%')
+          Row() {
+            GhostButton({ label: '取消', onTap: (): void => { this.showAdBlockDialog = false; } })
+          }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .padding({ top: '2vp' })
+        }
+          .width(this.isTablet ? '460vp' : '88%')
+          .padding('22vp')
+          .borderRadius(this.panelRadius)
+          .backgroundColor(Ui.glassTintStrong(this.darkTheme))
+          .backdropBlur(Ui.glassBlur(this.immersiveConfig.immersiveEnable, this.immersiveConfig.immersiveBlur))
+          .border({ width: 1, color: Ui.glassRing(this.darkTheme) })
+          .shadow({ radius: 26, color: Ui.shadow(this.darkTheme), offsetY: 12 })
+          .clip(true)
+      }
+        .width('100%')
+        .height('100%')
+        .transition(TransitionEffect.OPACITY)
+    }
+  }
+
   build() {
     Stack() {
       // 底层：主题资源底色 + 低强度极光柔光。
@@ -1707,6 +3452,7 @@ export struct SettingPage {
       }
       this.logDialog()
       this.clearDialog()
+      this.adBlockDialog()
     }
     // 根容器和滚动视口均撑满宿主；不增加系统栏、底部导航或手势条占位。
       .width('100%').height('100%').padding({ bottom: '0vp' }).backgroundColor(this.pageBackground())
@@ -1741,7 +3487,8 @@ export struct SettingPage {
           this.dockScale = AppState.dockScale;
           this.fontScale = AppState.fontScale;
           void ImmersiveService.apply(true);
-          void SearchSources.init().then(() => { this.remoteAddress = SearchSources.currentAddress(); })
+          void SearchSources.init().then(() => { this.remoteAddress = SearchSources.currentAddress(); this.refreshCustomRules(); })
+          void DnsService.init().then(() => { this.dnsMode = DnsService.current(); })
             .catch((error: Error) => {
               Logger.error('SearchEngineLoad', '读取自定义地址失败：' + String(error));
               this.showOperationError('读取自定义地址失败：' + String(error));
@@ -1754,3 +3501,126 @@ export struct SettingPage {
       });
   }
 }
+/**
+ * 设置页通用「标题 + 数值气泡 + 进度条」行。
+ *
+ * 为什么是子组件而不是 @Builder：@Builder 按值传参时，参数变化不会刷新内部 UI，
+ * 拖动进度条时右侧数值会停在旧值。改用 @Prop 后，父组件状态一变这里就重新渲染，
+ * 数值气泡、进度条位置、页面预览都会实时跟着动。
+ */
+@Component
+struct SettingSliderRow {
+  @StorageLink('darkTheme') private darkTheme: boolean = true;
+  @StorageLink('fontScale') private fontScale: number = 1;
+  @Prop title: string = '';
+  @Prop titleSize: string = '15vp';
+  @Prop value: number = 0;
+  @Prop minValue: number = 0;
+  @Prop maxValue: number = 100;
+  @Prop stepValue: number = 1;
+  /** 自定义数值文案（如播放速率的 "1x"）；为空时按步长自动格式化。 */
+  @Prop valueText: string = '';
+  onChanged: (value: number) => void = (): void => {};
+
+  /** 数值文案：优先用 valueText；否则步长小于 1 显示一位小数（如 0.7），其余取整。 */
+  private displayValue(): string {
+    if (this.valueText.length > 0) {
+      return this.valueText;
+    }
+    return this.value.toFixed(this.stepValue < 1 ? 1 : 0);
+  }
+
+  build() {
+    Column({ space: '6vp' }) {
+      Row({ space: '10vp' }) {
+        Text(this.title)
+          .fontSize(Ui.fs(this.titleSize, this.fontScale))
+          .fontColor(Ui.ink(this.darkTheme))
+          .maxLines(1)
+          .layoutWeight(1)
+        Row() {
+          Text(this.displayValue())
+            .fontSize(Ui.fs('13vp', this.fontScale))
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Ui.accentStrong(this.darkTheme))
+        }
+          .height('26vp')
+          .padding({ left: '11vp', right: '11vp' })
+          .borderRadius('13vp')
+          .backgroundColor(Ui.accentSoft(this.darkTheme))
+          .border({ width: 1, color: Ui.glassRingAccent(this.darkTheme) })
+      }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      Slider({
+        value: this.value,
+        min: this.minValue,
+        max: this.maxValue,
+        step: this.stepValue,
+        style: SliderStyle.OutSet
+      })
+        .blockColor(Ui.accentStrong(this.darkTheme))
+        .trackColor(Ui.glassTintSoft(this.darkTheme))
+        .selectedColor(Ui.accent(this.darkTheme))
+        .showSteps(false)
+        .onChange((current: number) => { this.onChanged(current); })
+    }
+      .width('100%')
+      .padding({ top: '12vp', bottom: '12vp' })
+      .constraintSize({ minHeight: 54 })
+  }
+}
+
+
+
+
+
+
+
+
+/**
+ * 设置页文本输入框子组件。
+ *
+ * 为什么不用 @Builder：@Builder 的 value 参数不会随父组件刷新，键盘收起触发页面重建时
+ * TextInput 会拿到旧的 text（表现为「退出输入法后内容被清空」）。改成子组件 + @Link 双向绑定后，
+ * 文本始终存在父组件的 @State 里，重建也不会丢。
+ */
+@Component
+struct SettingField {
+  field: string = '';
+  @Link value: string;
+  @Prop placeholder: string = '';
+  @Prop darkTheme: boolean = true;
+  @Prop fontScale: number = 1;
+  @Prop focused: boolean = false;
+  onFocusChange: (focused: boolean) => void = (focused: boolean) => {};
+  onChange: (value: string) => void = (value: string) => {};
+
+  build() {
+    TextInput({ text: $$this.value, placeholder: this.placeholder })
+      .width('100%')
+      .height(46)
+      .fontSize(Ui.fs('14vp', this.fontScale))
+      .fontColor(Ui.ink(this.darkTheme))
+      .placeholderColor(Ui.inkFaint(this.darkTheme))
+      .caretColor(Ui.accent(this.darkTheme))
+      .backgroundColor(Ui.glassTintSoft(this.darkTheme))
+      .borderRadius(23)
+      .border({ width: 1, color: this.focused ? Ui.accentRing(this.darkTheme) : Ui.glassRingSoft(this.darkTheme) })
+      .padding({ left: '16vp', right: '16vp' })
+      .onFocus(() => { this.onFocusChange(true); })
+      .onBlur(() => { this.onFocusChange(false); })
+      .onChange((value: string) => {
+        this.value = value;
+        this.onChange(value);
+      })
+  }
+}
+
+
+
+
+
+
+
+

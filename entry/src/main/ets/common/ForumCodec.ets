@@ -15,6 +15,8 @@ export class ForumMedia {
   title: string = '';
   /** 视频封面 */
   poster: string = '';
+  /** 视频时长（秒），用于卡片角标 */
+  duration: number = 0;
 }
 
 export class ForumContent {
@@ -113,6 +115,9 @@ export class ForumCodec {
     media.url = url;
     media.title = typeof item.title === 'string' ? item.title : '';
     media.poster = typeof item.poster === 'string' ? item.poster : '';
+    // 视频时长（秒）：卡片右下角角标用，老数据没有就是 0。
+    const seconds: number = Number(item.duration);
+    media.duration = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
     return media;
   }
 

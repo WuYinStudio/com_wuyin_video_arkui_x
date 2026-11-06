@@ -334,14 +334,67 @@ export class CommunityApi {
     }
   }
 
+  /** 去掉 BOM/HTML 包裹，截取真正的 JSON 主体；部分接口会在 JSON 前后夹通知文本。 */
+  private static jsonBody(body: string): string {
+    let text: string = body.replace(/^\uFEFF/, '').trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      return text;
+    }
+    const objectStart: number = text.indexOf('{');
+    const arrayStart: number = text.indexOf('[');
+    let start: number = -1;
+    if (objectStart >= 0 && arrayStart >= 0) {
+      start = Math.min(objectStart, arrayStart);
+    } else {
+      start = Math.max(objectStart, arrayStart);
+    }
+    if (start < 0) {
+      return text;
+    }
+    const objectEnd: number = text.lastIndexOf('}');
+    const arrayEnd: number = text.lastIndexOf(']');
+    const end: number = Math.max(objectEnd, arrayEnd);
+    return end > start ? text.substring(start, end + 1) : text;
+  }
+
   private static async requestJson<T>(path: string, label: string): Promise<T> {
     const body: string = await CommunityApi.requestText(path, label);
     try {
-      return JSON.parse(body) as T;
+      return JSON.parse(CommunityApi.jsonBody(body)) as T;
     } catch (error) {
-      Logger.error('COMMUNITY_API', label + ' JSON 解析失败：' + String(error));
+      Logger.error('COMMUNITY_API', label + ' JSON 解析失败：' + String(error) +
+        '，响应片段：' + body.substring(0, 200));
       throw new Error(label + '返回格式异常');
     }
+  }
+
+  /**
+   * 动作类接口（评论/回复等）不强制 JSON：
+   * 服务端可能返回空响应、纯文本或 HTML 提示，只要没有错误关键字就按成功处理。
+   */
+  private static async requestAction(path: string, label: string): Promise<string> {
+    const body: string = await CommunityApi.requestText(path, label);
+    const text: string = CommunityApi.jsonBody(body);
+    if (text.length === 0) {
+      return '';
+    }
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        const raw: RawActionResult = JSON.parse(text) as RawActionResult;
+        return CommunityApi.actionMessage(raw);
+      } catch (_) {
+        // JSON 不完整时继续走文本判断。
+      }
+    }
+    const plain: string = body.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    if (plain.length === 0) {
+      return '';
+    }
+    if (/error|失败|异常|禁止|未登录|请登录|invalid|forbidden|denied/i.test(plain)) {
+      throw new Error(plain.length > 100 ? plain.substring(0, 100) : plain);
+    }
+    return '';
   }
 
   private static numberValue(value: string | number | undefined): number {
@@ -501,8 +554,12 @@ export class CommunityApi {
     return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
   }
 
-  static async onlineCount(): Promise<number> {
-    const path: string = '/online_see.php?' + CommunityApi.adminQuery();
+  static async onlineCount(session?: CommunitySession): Promise<number> {
+    let path: string = '/online_see.php?' + CommunityApi.adminQuery();
+    if (session !== undefined && session.user.length > 0) {
+      path += '&user=' + encodeURIComponent(session.user) +
+        '&pass=' + encodeURIComponent(session.pass);
+    }
     const body: string = await CommunityApi.requestText(path, '在线统计');
     const match: RegExpMatchArray | null = body.match(/(\d+)/);
     if (match === null) {
@@ -748,8 +805,8 @@ export class CommunityApi {
     if (replyTo > 0) {
       path += '&content_r=' + String(Math.trunc(replyTo));
     }
-    const raw: RawActionResult = await CommunityApi.requestJson<RawActionResult>(path, '发布评论');
-    return CommunityApi.actionMessage(raw);
+    const message: string = await CommunityApi.requestAction(path, '发布评论');
+    return message;
   }
 
   static async likePost(session: CommunitySession, postId: string): Promise<string> {

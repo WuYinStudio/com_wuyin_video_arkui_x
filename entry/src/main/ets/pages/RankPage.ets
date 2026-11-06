@@ -57,7 +57,7 @@ struct RankPage {
       router.back();
       return;
     }
-    void router.replaceUrl({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
   }
 
   @Builder

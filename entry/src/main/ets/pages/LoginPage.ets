@@ -2,42 +2,13 @@ import { http } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { router, window } from '@kit.ArkUI';
+import { AppState } from '../common/AppState';
 import { AppConfig } from '../common/AppConfig';
 import { Logger } from '../common/Logger';
-import { TencentSDK, TencentAuthorizationResult, TencentProvider } from '../common/TencentSdkService';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
-interface TencentProfileResponse {
-  nickname?: string;
-  figureurl_qq_2?: string;
-  figureurl_2?: string;
-  figureurl?: string;
-  ret?: number;
-  msg?: string;
-}
 
-interface LoginTencentProfile {
-  nickname: string;
-  avatar: string;
-}
-
-interface HuaweiAuthResponseData {
-  authorizationCode?: string;
-}
-
-interface HuaweiAuthResponseBridge {
-  authorizationCode?: string;
-  data?: HuaweiAuthResponseData;
-}
-
-interface HuaweiBackendUserInfo {
-  user: string;
-  pass: string;
-  nickname: string;
-  avatar: string;
-}
 
 interface LoginStatusResponse {
   status?: string | number;
@@ -226,138 +197,6 @@ struct LoginPage {
     return domain + '/' + path + '?admin=' + admin + '&user=' + encodedUser + '&pass=' + encodedPass;
   }
 
-  private buildTencentLoginUrl(config: AppConfig, user: string, pass: string): string {
-    return this.buildBackendUrlWithCredentials(config, 'userlogin.php', user, pass);
-  }
-
-  private buildTencentRegisterUrl(config: AppConfig, user: string, pass: string): string {
-    return this.buildBackendUrlWithCredentials(config, 'userregister.php', user, pass);
-  }
-
-  private async loginByTencent(provider: TencentProvider): Promise<void> {
-    if (this.isLoading) {
-      return;
-    }
-    const config: AppConfig = AppConfig.getInstance();
-    if (!config.isInitialized()) {
-      this.showAlert('后端配置异常', '后端配置尚未初始化，请稍后重试');
-      return;
-    }
-    this.isLoading = true;
-    try {
-      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-      Logger.info('LOGIN', '开始' + provider + ' SDK授权');
-      const authorization: TencentAuthorizationResult = await TencentSDK.authorize(context, provider);
-      if (!authorization.openid || !authorization.accessToken) {
-        throw new Error(provider + '授权未返回openid或access_token');
-      }
-      Logger.info('LOGIN', provider + '授权成功，openid已获取');
-      const profile: LoginTencentProfile = await this.requestTencentProfile(config, provider, authorization);
-      const internalUser: string = this.createInternalUser(provider, authorization.openid);
-      const internalPass: string = this.createInternalPassword(authorization.openid);
-      const loginUrl: string = this.buildTencentLoginUrl(config, internalUser, internalPass);
-      const loginText: string = await this.requestText(loginUrl);
-      Logger.info('LOGIN', provider + '内部登录返回：' + loginText);
-      if (!this.isSuccessResponse(loginText)) {
-        const registerUrl: string = this.buildTencentRegisterUrl(config, internalUser, internalPass);
-        const registerText: string = await this.requestText(registerUrl);
-        Logger.info('LOGIN', provider + '自动注册返回：' + registerText);
-        if (!this.isSuccessResponse(registerText)) {
-          throw new Error(registerText || loginText || (provider + '登录注册失败'));
-        }
-      }
-      await this.saveCredentials(internalUser, internalPass, profile.nickname, profile.avatar);
-      await this.replaceToMyPage();
-    } catch (error) {
-      Logger.error('LOGIN', provider + '登录异常：' + this.errorMessage(error));
-      this.showAlert(provider + '登录失败', this.errorMessage(error));
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
-  private async requestTencentProfile(config: AppConfig, provider: TencentProvider,
-    authorization: TencentAuthorizationResult): Promise<LoginTencentProfile> {
-    const profile: LoginTencentProfile = {
-      nickname: authorization.nickname,
-        avatar: authorization.avatar
-    };
-    try {
-      const domain: string = provider === TencentProvider.QQ ? 'https://graph.qq.com' : 'https://graph.qq.com';
-      const url: string = domain + '/user/get_user_info?access_token=' + encodeURIComponent(authorization.accessToken) +
-      '&oauth_consumer_key=' + encodeURIComponent(config.backendAccount) + '&openid=' + encodeURIComponent(authorization.openid);
-      Logger.debug('LOGIN', provider + '请求腾讯公开用户接口');
-      const text: string = await this.requestText(url);
-      const response: TencentProfileResponse = JSON.parse(text) as TencentProfileResponse;
-      if (response.nickname) {
-        profile.nickname = response.nickname;
-      }
-      if (response.figureurl_qq_2) {
-        profile.avatar = response.figureurl_qq_2;
-      } else if (response.figureurl_2) {
-        profile.avatar = response.figureurl_2;
-      } else if (response.figureurl) {
-        profile.avatar = response.figureurl;
-      }
-      Logger.debug('LOGIN', provider + '腾讯用户信息解析完成');
-    } catch (error) {
-      Logger.warn('LOGIN', provider + '公开用户接口失败，使用SDK资料：' + this.errorMessage(error));
-    }
-    return profile;
-  }
-
-  private createInternalUser(provider: TencentProvider, openid: string): string {
-    const prefix: string = provider === TencentProvider.QQ ? 'qq' : 'tim';
-    return prefix + '_' + this.hashOpenId(openid);
-  }
-
-  private createInternalPassword(openid: string): string {
-    return 'wuyin_' + this.hashOpenId(openid) + '_login';
-  }
-
-  private hashOpenId(openid: string): string {
-    let hash: number = 7;
-    for (let index: number = 0; index < openid.length; index++) {
-      hash = (hash * 31 + openid.charCodeAt(index)) >>> 0;
-    }
-    return hash.toString(36);
-  }
-
-  private loginByHuawei(): void {
-    const message: string = '当前工程使用的 AccountKit 未提供可用的华为账号认证接口，请使用账号密码登录';
-    Logger.warn('LOGIN', message);
-    this.showAlert('华为登录暂不可用', message);
-  }
-
-  private extractHuaweiAuthorizationCode(response: HuaweiAuthResponseBridge): string {
-    if (response.authorizationCode) {
-      return response.authorizationCode;
-    }
-    if (response.data && response.data.authorizationCode) {
-      return response.data.authorizationCode;
-    }
-    return '';
-  }
-
-  private buildHuaweiBackendUrl(config: AppConfig, authorizationCode: string): string {
-    const domain: string = config.backendDomain.replace(/\/+$/, '');
-    return domain + '/huaweiLogin.php?admin=' + encodeURIComponent(config.backendAccount) +
-    '&authorizationCode=' + encodeURIComponent(authorizationCode);
-  }
-
-  private parseHuaweiBackendResponse(text: string): HuaweiBackendUserInfo {
-    try {
-      const parsed: HuaweiBackendUserInfo = JSON.parse(text) as HuaweiBackendUserInfo;
-      if (!parsed.user || !parsed.pass) {
-        throw new Error(text || '华为后端未返回完整用户信息');
-      }
-      return parsed;
-    } catch (error) {
-      Logger.error('LOGIN', '华为后端用户信息解析失败：' + this.errorMessage(error));
-      throw new Error(this.errorMessage(error));
-    }
-  }
-
   private async saveCredentials(user: string, pass: string, nickname: string, avatar: string): Promise<void> {
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -384,7 +223,7 @@ struct LoginPage {
         router.back();
         return;
       }
-      await replaceRoute({ url: 'pages/Index' });
+      await router.pushUrl({ url: 'pages/Index' });
     } catch (error) {
       Logger.error('LOGIN', '登录成功后的返回失败：' + this.errorMessage(error));
       throw new Error('登录成功，但页面跳转失败：' + this.errorMessage(error));
@@ -394,21 +233,37 @@ struct LoginPage {
   /** 返回上一级；没有上一级就回首页，避免直接退出应用。 */
   private goBack(): void {
     try {
-      if (Number(router.getLength()) > 1) {
-        router.back();
+      const length: number = Number(this.getUIContext().getRouter().getLength());
+      Logger.info('LOGIN', '点击返回，路由栈长度=' + String(length));
+      if (length > 1) {
+        try {
+          this.getUIContext().getRouter().back();
+        } catch (error) {
+          Logger.warn('LOGIN', '返回上一级失败，改为回首页：' + this.errorMessage(error));
+          this.backToHomePage();
+        }
         return;
       }
-      void replaceRoute({ url: 'pages/Index' });
+      this.backToHomePage();
     } catch (error) {
       Logger.error('LOGIN', '返回上一级失败：' + this.errorMessage(error));
+      this.backToHomePage();
     }
+  }
+
+  /** 兜底回首页壳页面（登录页是唯一页面时使用）。 */
+  private backToHomePage(): void {
+    try { AppState.go('home'); } catch (_) { /* 忽略 */ }
+    router.pushUrl({ url: 'pages/Index' }).catch((error: Error) => {
+      Logger.error('LOGIN', '回首页失败：' + this.errorMessage(error));
+    });
   }
 
   // 系统返回：有上一级交给系统 pop；只有本页时改为回首页，不退出应用。
   onBackPress(): boolean {
     try {
-      if (Number(router.getLength()) > 1) { return false; }
-      void replaceRoute({ url: 'pages/Index' });
+      if (Number(this.getUIContext().getRouter().getLength()) > 1) { return false; }
+      this.backToHomePage();
       return true;
     } catch (error) {
       return false;
@@ -519,11 +374,12 @@ struct LoginPage {
     Column({ space: 16 }) {
       Stack({ alignContent: Alignment.Center }) {
         Column() {
-          Text('无')
-            .fontSize(Ui.fs(this.tablet() ? '32vp' : '28vp', this.fontScale))
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .letterSpacing(1)
+          // 项目图标替代原来的「无」字
+          Image($r('app.media.icon'))
+            .width(this.logoSize() * 0.72)
+            .height(this.logoSize() * 0.72)
+            .borderRadius(this.logoRadius() * 0.5)
+            .objectFit(ImageFit.Contain)
         }
           .width(this.logoSize())
           .height(this.logoSize())
@@ -689,61 +545,6 @@ struct LoginPage {
           void this.loginByPassword();
         })
 
-      Row({ space: 10 }) {
-        Column()
-          .height(1)
-          .layoutWeight(1)
-          .backgroundColor(Ui.divider(this.dark))
-          .opacity(0.8)
-        Text('其他方式登录')
-          .fontSize(Ui.fs('11.5vp', this.fontScale))
-          .fontColor(Ui.inkFaint(this.dark))
-          .maxLines(1)
-        Column()
-          .height(1)
-          .layoutWeight(1)
-          .backgroundColor(Ui.divider(this.dark))
-          .opacity(0.8)
-      }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
-        .margin({ top: 2 })
-
-      Row({ space: 10 }) {
-        Column() {
-          GhostButton({
-            label: 'QQ登录',
-            compact: true,
-            onTap: (): void => {
-              void this.loginByTencent(TencentProvider.QQ);
-            }
-          })
-        }
-          .layoutWeight(1)
-        Column() {
-          GhostButton({
-            label: 'TIM登录',
-            compact: true,
-            onTap: (): void => {
-              void this.loginByTencent(TencentProvider.TIM);
-            }
-          })
-        }
-          .layoutWeight(1)
-        Column() {
-          GhostButton({
-            label: '华为账号',
-            compact: true,
-            onTap: (): void => {
-              void this.loginByHuawei();
-            }
-          })
-        }
-          .layoutWeight(1)
-      }
-        .width('100%')
-        .enabled(!this.isLoading)
-        .opacity(this.isLoading ? 0.6 : 1)
     }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -780,6 +581,13 @@ struct LoginPage {
       }
         .textAlign(TextAlign.Center)
         .width('100%')
+      // 未成年人提示：与隐私政策「对未成年人的保护」一节对应。
+      Text('未满 14 周岁请在监护人陪同下阅读并同意本协议后使用')
+        .fontSize(Ui.fs('11vp', this.fontScale))
+        .fontColor(Ui.inkFaint(this.dark))
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .maxLines(2)
     }
       .width('100%')
       .alignItems(HorizontalAlign.Center)
@@ -799,13 +607,6 @@ struct LoginPage {
           ]
         })
       AuroraBackdrop({ intensity: this.dark ? 1 : 0.9 })
-      // 左上角返回：返回上一级；没有上一级回首页，不会直接退出应用。
-      Row() {
-        GhostButton({ label: '返回', compact: true, onTap: (): void => { this.goBack(); } })
-      }
-        .width('100%')
-        .padding({ left: this.gutter(), top: (this.safeTop() + 6) + 'vp' })
-        .justifyContent(FlexAlign.Start)
       Scroll() {
         Column() {
           this.brandHeader()
@@ -842,6 +643,17 @@ struct LoginPage {
         .width('100%')
         .height('100%')
         .scrollBar(BarState.Off)
+      // 左上角返回：必须画在 Scroll 之后（Stack 后绘制者在上层），
+      // 否则会被铺满全屏的 Scroll 挡住点击区域，点它没有任何反应。
+      Row() {
+        GhostButton({ label: '返回', compact: true, onTap: (): void => { this.goBack(); } })
+      }
+        .width('100%')
+        .height((this.safeTop() + 50) + 'vp')
+        .padding({ left: this.gutter(), top: (this.safeTop() + 6) + 'vp' })
+        .alignItems(VerticalAlign.Top)
+        .justifyContent(FlexAlign.Start)
+        .hitTestBehavior(HitTestMode.Transparent)
     }
       .width('100%')
       .height('100%')
@@ -852,3 +664,6 @@ struct LoginPage {
       })
   }
 }
+
+
+

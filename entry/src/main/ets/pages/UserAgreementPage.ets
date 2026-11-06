@@ -1,24 +1,12 @@
 import { common } from '@kit.AbilityKit';
+import { webview } from '@kit.ArkWeb';
 import { AgreementService } from '../common/AgreementService';
+import { LegalText } from '../common/LegalText';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, PageHeader, PrimaryButton } from '../common/UiWidgets';
 
-const DISCLAIMER_TEXT: string = [
-  '在使用本软件之前，请您仔细阅读以下内容，并确保您充分理解并同意以下条款：',
-  '1、本软件为开源软件，您可以免费获取并使用该软件。',
-  '2、本软件完全基于您个人意愿使用，您应该对自己的使用行为和所有结果承担全部责任。',
-  '3、本软件仅供学习交流、科研等非商业性质的用途，严禁将本软件用于商业目的。如有任何商业行为，均与本软件无关。',
-  '4、本软件并不保证与所有操作系统或硬件设备兼容。本软件作者或贡献者不对因使用本软件而产生的任何技术或安全问题承担责任。',
-  '5、本软件作者或贡献者不承担因使用本软件而造成的任何直接、间接、特殊或后果性的损失或损害的责任，包括但不限于财产损失、商业利润损失、信息或数据丢失或损坏等。',
-  '6、本软件使用者应遵守国家相关法律法规和使用规范，不得利用本软件从事任何违法违规行为。如因使用本软件而导致的违法行为，使用者应承担相应的法律责任。',
-  '7、本软件不会收集、存储、使用任何用户的个人信息，包括但不限于姓名、地址、电子邮件地址、电话号码等。在使用本软件过程中，不会进行任何形式的个人信息采集。如用户提供任何个人信息，将被视为用户已自愿提供，并且用户将自行承担由此产生的所有法律责任。',
-  '8、本软件作者或贡献者保留随时修改、增加、删除本免责声明中的内容而不另行通知的权利。',
-  '9、如果本软件存在侵犯您的合法权益的情况，请及时与作者联系，作者将会及时删除有关内容。',
-  '如您不同意本免责声明中的任何内容，请勿使用本软件。使用本软件即代表您已完全理解并同意上述内容。'
-].join('\n\n');
-
-/** 阅读卡里的一段：条款序号单独加粗，正文保持原文，不做任何改写。 */
+/** 阅读卡里的一段：条款标题（如「一、服务内容」）单独加粗，正文保持原文，不做任何改写。 */
 interface AgreementParagraph {
   key: string;
   heading: string;
@@ -34,10 +22,29 @@ export struct UserAgreementPage {
   @State private isSubmitting: boolean = false;
   @State private isExiting: boolean = false;
   @State private actionError: string = '';
+  /** 当前展示的文档：用户协议 / 隐私政策，两份都内置在应用里，断网也能看。 */
+  @State private docTab: string = 'agreement';
+  /** 在线协议 WebView 控制器（与 21:37 版本一致：字段初始化时创建）。 */
+  private webController: webview.WebviewController = new webview.WebviewController();
+
+  /** 当前文档的在线地址；为空表示用内置全文。 */
+  private documentUrl(): string {
+    return this.docTab === 'privacy' ? LegalText.PRIVACY_URL : LegalText.AGREEMENT_URL;
+  }
+
+  /** 当前文档的段落块（内置文本，见 LegalText）。 */
+  private documentBlocks(): string[] {
+    return this.docTab === 'privacy' ? LegalText.PRIVACY_POLICY : LegalText.USER_AGREEMENT;
+  }
+
+  /** 小节标题：以「一、」这类中文序号或「1.1」开头且较短的行。 */
+  private isSectionHeading(line: string): boolean {
+    if (line.length > 24) { return false; }
+    return /^[一二三四五六七八九十]+、/.test(line) || /^\d+\.\d+\s/.test(line);
+  }
 
   aboutToAppear(): void {
     try {
-      // 协议状态由入口统一恢复，避免在用户点击同意时重复读取旧状态。
       Logger.info('UserAgreement', '展示用户协议免责声明');
     } catch (error) {
       Logger.error('UserAgreement', '展示协议页面失败：' + String(error));
@@ -73,17 +80,22 @@ export struct UserAgreementPage {
 
   // 仅在普通方法里切分段落：build 内不声明局部变量。
   private paragraphs(): AgreementParagraph[] {
-    const blocks: string[] = DISCLAIMER_TEXT.split('\n\n');
+    const blocks: string[] = this.documentBlocks();
     const result: AgreementParagraph[] = [];
     for (let index: number = 0; index < blocks.length; index++) {
       const line: string = blocks[index].trim();
       if (line.length === 0) { continue; }
-      const marker: number = line.indexOf('、');
-      const numbered: boolean = marker > 0 && /^\d+$/.test(line.substring(0, marker));
+      if (this.isSectionHeading(line)) {
+        result.push({ key: 'head-' + index, heading: line, body: '' });
+        continue;
+      }
+      // 形如「1. 正文」的编号句：序号加粗，正文照排。
+      const marker: number = line.indexOf('. ');
+      const numbered: boolean = marker > 0 && marker <= 3 && /^\d+$/.test(line.substring(0, marker));
       result.push({
         key: 'para-' + index,
-        heading: numbered ? line.substring(0, marker + 1) : '',
-        body: numbered ? line.substring(marker + 1) : line
+        heading: numbered ? line.substring(0, marker + 2) : '',
+        body: numbered ? line.substring(marker + 2) : line
       });
     }
     return result;
@@ -97,19 +109,12 @@ export struct UserAgreementPage {
       this.isSubmitting = true;
       this.actionError = '';
       Logger.info('UserAgreement', '用户点击同意协议');
-      const persisted: boolean = await AgreementService.accept(getContext(this) as common.UIAbilityContext);
-      if (!persisted) {
-        // 已放行本次启动：iOS 上 preferences 可能不可用，文件标记也失败时只提示、不拦截。
-        try {
-          this.getUIContext().getPromptAction().showToast({
-            message: '已同意；本机未能保存状态，下次启动可能需要重新同意'
-          });
-        } catch (toastError) {
-          Logger.warn('UserAgreement', '提示未能弹出：' + String(toastError));
-        }
+      await AgreementService.accept(getContext(this) as common.UIAbilityContext);
+      if (!this.agreementAccepted) {
+        this.actionError = '保存同意状态失败，请重试或退出软件。';
       }
     } catch (error) {
-      this.actionError = '同意协议失败，请重试或退出软件。';
+      this.actionError = '保存同意状态失败，请重试或退出软件。';
       Logger.error('UserAgreement', '同意协议失败：' + String(error));
     } finally {
       this.isSubmitting = false;
@@ -147,11 +152,44 @@ export struct UserAgreementPage {
       AuroraBackdrop({ intensity: this.isDarkTheme ? 1 : 0.9 })
       Column() {
         PageHeader({
-          title: '用户协议',
-          subtitle: '免责声明',
+          title: this.docTab === 'privacy' ? '隐私政策' : '用户协议',
+          subtitle: this.docTab === 'privacy' ? '我们如何收集与保护您的信息' : '使用条款与免责声明',
           showBack: false,
           gutter: 16
         })
+        // 文档切换：两份都在应用内，不需要联网打开外部链接。
+        Row({ space: '8vp' }) {
+          ForEach(['agreement', 'privacy'], (tab: string) => {
+            Text(tab === 'privacy' ? '隐私政策' : '用户协议')
+              .fontSize(Ui.fs('12.5vp', this.fontScale))
+              .fontWeight(this.docTab === tab ? FontWeight.Medium : FontWeight.Normal)
+              .fontColor(this.docTab === tab ? Ui.accentStrong(this.isDarkTheme) : this.secondaryTextColor())
+              .height('30vp')
+              .padding({ left: '14vp', right: '14vp' })
+              .borderRadius('15vp')
+              .backgroundColor(this.docTab === tab ? Ui.accentSoft(this.isDarkTheme) : Ui.glassTintSoft(this.isDarkTheme))
+              .border({ width: 1, color: this.docTab === tab ? Ui.accentRing(this.isDarkTheme) : Ui.glassRingSoft(this.isDarkTheme) })
+              .textAlign(TextAlign.Center)
+              .onClick(() => { this.docTab = tab; })
+          }, (tab: string) => 'legal-tab-' + tab)
+        }
+          .width('100%')
+          .padding({ left: '16vp', right: '16vp', bottom: '8vp' })
+          .justifyContent(FlexAlign.Start)
+        if (this.documentUrl().length > 0) {
+          // 在线协议：直接在应用内打开 AGC 生成的协议页面，避免跳出应用。
+          Web({ src: this.documentUrl(), controller: this.webController })
+            .width('100%')
+            .layoutWeight(1)
+            .backgroundColor(this.pageBackgroundColor())
+            .mixedMode(MixedMode.All)
+            .domStorageAccess(true)
+            .onErrorReceive((event) => {
+              if (event) {
+                Logger.warn('UserAgreement', '在线协议加载失败，改用内置全文：' + event.error.getErrorInfo());
+              }
+            })
+        } else {
         Scroll() {
           Column({ space: '0vp' }) {
             Column({ space: '14vp' }) {
@@ -188,6 +226,7 @@ export struct UserAgreementPage {
           .scrollBar(BarState.Auto)
           .layoutWeight(1)
           .width('100%')
+        }
 
         if (this.actionError.length > 0) {
           Text(this.actionError)
@@ -197,6 +236,15 @@ export struct UserAgreementPage {
             .width('100%')
             .padding({ left: '20vp', right: '20vp', top: '6vp' })
         }
+
+        // 未成年人提示：首次启动同意前就必须可见，对应隐私政策「对未成年人的保护」一节。
+        Text('未满 14 周岁请在监护人陪同下阅读并同意本协议后使用')
+          .fontSize(Ui.fs('11.5vp', this.fontScale))
+          .fontColor(Ui.inkFaint(this.isDarkTheme))
+          .textAlign(TextAlign.Center)
+          .width('100%')
+          .maxLines(2)
+          .padding({ left: '20vp', right: '20vp', top: '10vp' })
 
         Row({ space: '12vp' }) {
           GhostButton({
@@ -223,3 +271,6 @@ export struct UserAgreementPage {
       .backgroundColor(this.pageBackgroundColor())
   }
 }
+
+
+

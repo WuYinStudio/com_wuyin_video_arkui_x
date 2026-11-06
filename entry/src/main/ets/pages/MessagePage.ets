@@ -9,7 +9,6 @@ import { Ui } from '../common/Ui';
 import { AuroraBackdrop, EmptyState, GhostButton, GlassSearchBar, PrimaryButton, SectionHeader } from '../common/UiWidgets';
 import { ChatNoticeBanner } from '../components/ChatNoticeBanner';
 import { SymbolIcons } from '../common/SymbolIcons';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 interface MessageRouteParams {
   room?: string;
@@ -106,7 +105,7 @@ struct MessagePage {
     try {
       const params = router.getParams() as MessageRouteParams | undefined;
       if (params && typeof params.room === 'string' && params.room.trim().length > 0) {
-        replaceRoute(new ChatRoute(params.room.trim(), params.room.trim())).catch((error: Error) => {
+        router.pushUrl(new ChatRoute(params.room.trim(), params.room.trim())).catch((error: Error) => {
           Logger.error('MESSAGE_HUB', '打开反馈聊天室失败：' + String(error));
         });
         return;
@@ -118,10 +117,14 @@ struct MessagePage {
   }
 
   onPageShow(): void {
-    if (this.alive && this.loggedIn) {
-      this.reloadLocal();
-      void this.refreshUnread();
+    if (!this.alive) { return; }
+    if (!this.loggedIn) {
+      // 从登录页返回后重新读取会话，登录成功则自动收起遮罩。
+      void this.prepare();
+      return;
     }
+    this.reloadLocal();
+    void this.refreshUnread();
   }
 
   aboutToDisappear(): void {
@@ -657,6 +660,55 @@ struct MessagePage {
     }
   }
 
+  private openLogin(): void {
+    router.pushUrl({ url: 'pages/LoginPage' }).catch((error: Error) => {
+      Logger.error('MESSAGE_HUB', '打开登录页失败：' + String(error));
+    });
+  }
+
+  @Builder private loginMask() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(Ui.scrim(this.darkTheme));
+      Column({ space: '12vp' }) {
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width('54vp')
+            .height('54vp')
+            .borderRadius('27vp')
+            .backgroundColor(Ui.accentSoft(this.darkTheme));
+          SymbolGlyph($r('sys.symbol.person'))
+            .fontSize(Ui.fs('26vp', this.fontScale))
+            .fontColor([Ui.accentStrong(this.darkTheme)]);
+        }
+          .width('54vp')
+          .height('54vp');
+        Text('登录后使用消息')
+          .fontSize(Ui.fs('18vp', this.fontScale))
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Ui.ink(this.darkTheme));
+        Text('登录后查看聊天室、系统消息与好友消息')
+          .fontSize(Ui.fs('12.5vp', this.fontScale))
+          .fontColor(Ui.inkSoft(this.darkTheme))
+          .textAlign(TextAlign.Center)
+          .maxLines(2);
+        PrimaryButton({ label: '去登录', onTap: (): void => { this.openLogin(); } });
+      }
+        .width('84%')
+        .constraintSize({ maxWidth: '340vp' })
+        .padding('22vp')
+        .borderRadius('22vp')
+        .backgroundColor(Ui.glassTintStrong(this.darkTheme))
+        .backdropBlur(18)
+        .alignItems(HorizontalAlign.Center);
+    }
+      .width('100%')
+      .height('100%')
+      .zIndex(30);
+  }
+
   build() {
     Stack() {
       Column().width('100%').height('100%').backgroundColor(this.pageBackground())
@@ -671,8 +723,7 @@ struct MessagePage {
                 router.pushUrl({ url: 'pages/LoginPage' }).catch((error: Error) => {
                   Logger.error('MESSAGE_HUB', '打开登录页失败：' + String(error));
                 });
-              } })
-            } else {
+              } })            } else {
               this.onlineCard()
               this.entryGrid()
               this.systemList()
@@ -717,5 +768,11 @@ struct MessagePage {
           Logger.warn('MESSAGE_HUB', '更新消息页宽度失败：' + String(error));
         }
       })
+      .bindContentCover(!this.loggedIn, this.loginMask(), {
+        modalTransition: ModalTransition.NONE
+      })
   }
 }
+
+
+

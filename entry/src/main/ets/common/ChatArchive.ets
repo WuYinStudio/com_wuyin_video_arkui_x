@@ -121,7 +121,6 @@ export class ChatArchive {
     try {
       await ChatArchive.init(context);
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      options.maxSelectNumber = 1;
       options.fileSuffixFilters = ['.json'];
       const documentPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(context);
       const uris: string[] = await documentPicker.select(options);

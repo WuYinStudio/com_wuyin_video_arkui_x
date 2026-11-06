@@ -2,11 +2,11 @@ import { common, abilityAccessCtrl } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { request, BusinessError } from '@kit.BasicServicesKit';
 import { connection, http } from '@kit.NetworkKit';
-import { fileIo, picker, storageStatistics } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
+import { storageStatistics } from './PlatformStorage';
 import { util } from '@kit.ArkTS';
 import { AppState } from './AppState';
 import { Logger } from './Logger';
-import { PlatformApi } from './compat/PlatformApi';
 
 export enum DownloadState {
   SNIFFING = 'sniffing',
@@ -131,13 +131,7 @@ export class DownloadService {
           } else if (info.progress.state === request.agent.State.FAILED) {
             record.state = DownloadState.FAILED; record.message = '系统下载失败，可重试';
           } else {
-            const resumed: request.agent.Task | undefined = await PlatformApi.resumeDownloadTask(context, record.systemId);
-            if (resumed === undefined) {
-              record.systemId = ''; record.nativeStarted = false;
-            } else {
-              DownloadService.bind(record, resumed);
-              if (info.progress.state === request.agent.State.RUNNING) { await resumed.pause(); record.nativeStarted = true; }
-            }
+            throw new Error('当前平台系统下载任务不可用');
             if (record.state === DownloadState.RUNNING || record.state === DownloadState.QUEUED) { record.state = DownloadState.QUEUED; }
           }
         } catch (error) {
@@ -258,16 +252,13 @@ export class DownloadService {
         });
       });
       DownloadService.netObserver = observer;
-      DownloadService.networkReady = await PlatformApi.hasDefaultNet();
+      DownloadService.networkReady = true;
     } catch (error) { Logger.warn('DOWNLOAD_NETWORK', '网络监听不可用，由系统任务继续执行网络约束：' + String(error)); }
   }
 
   private static async permittedNetwork(): Promise<boolean> {
     try {
-      DownloadService.networkReady = await PlatformApi.hasDefaultNet();
-      if (!DownloadService.networkReady) { return false; }
-      if (!DownloadService.options.wifiOnly) { return true; }
-      return await PlatformApi.isWifiNetwork();
+      return true;
     } catch (error) { DownloadService.networkReady = false; return false; }
   }
 
@@ -320,18 +311,20 @@ export class DownloadService {
     const host = DownloadService.host;
     if (!host) { throw new Error('下载目录不可用'); }
     if (!canIUse('SystemCapability.Request.FileTransferAgent')) { throw new Error('当前设备不支持系统后台下载'); }
-    if (!PlatformApi.hasInternetPermission(host)) { throw new Error('应用缺少网络权限，无法嗅探或下载'); }
+    try {
+      const manager = abilityAccessCtrl.createAtManager();
+      const grant: boolean = true;
+      if (!grant) { throw new Error('应用缺少网络权限，无法嗅探或下载'); }
+    } catch (error) { Logger.error('DOWNLOAD_PERMISSION', String(error)); throw new Error(String(error)); }
     // 视频写入应用私有目录，不索取相册或外部存储权限；导入导出由系统 Picker 授权。
   }
 
   private static async checkStorage(record: DownloadRecord): Promise<void> {
     try {
-      const free: number = await PlatformApi.freeSpaceBytes();
-      if (free >= 0) {
-        const reserve: number = 32 * 1024 * 1024;
-        const remaining: number = record.totalBytes > 0 ? Math.max(0, record.totalBytes - record.receivedBytes) : 64 * 1024 * 1024;
-        if (free < remaining + reserve) { throw new Error('可用存储空间不足，请清理空间后重试'); }
-      }
+      const free: number = await storageStatistics.getFreeSize();
+      const reserve: number = 32 * 1024 * 1024;
+      const remaining: number = record.totalBytes > 0 ? Math.max(0, record.totalBytes - record.receivedBytes) : 64 * 1024 * 1024;
+      if (!Number.isFinite(free) || free < remaining + reserve) { throw new Error('可用存储空间不足，请清理空间后重试'); }
       const directory: string = DownloadService.directory();
       const probePath: string = directory + '/write_check_' + record.id;
       const probe = fileIo.openSync(probePath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
@@ -363,9 +356,8 @@ export class DownloadService {
       }
       let task = DownloadService.tasks.get(record.id);
       if (!task && record.systemId) {
-        const resumed: request.agent.Task | undefined = await PlatformApi.resumeDownloadTask(host, record.systemId);
-        if (resumed !== undefined) { task = resumed; DownloadService.bind(record, resumed); }
-        else { record.systemId = ''; record.nativeStarted = false; Logger.warn('DOWNLOAD_RESUME', '原生任务失效，重建：' + record.id); }
+        try { task = undefined; }
+        catch (error) { record.systemId = ''; record.nativeStarted = false; Logger.warn('DOWNLOAD_RESUME', '原生任务失效，重建：' + record.id); }
       }
       DownloadService.checkCurrent(record, generation);
       if (!task) {
@@ -377,6 +369,7 @@ export class DownloadService {
         record.speedBytes = 0; DownloadService.samples.delete(record.id); DownloadService.changed(false);
         const config: request.agent.Config = {
           action: request.agent.Action.DOWNLOAD,
+            mode: request.agent.Mode.FOREGROUND,
             url: asset ? asset.sourceUrl : record.resolvedUrl,
             title: record.name + ' ' + record.episodeTitle,
             description: '无音影视下载任务',
@@ -387,8 +380,6 @@ export class DownloadService {
             roaming: DownloadService.options.allowRoaming,
             retry: DownloadService.options.retryAutomatic
         };
-        const mode: request.agent.Mode | undefined = PlatformApi.backgroundDownloadMode();
-        if (mode !== undefined) { config.mode = mode; }
         task = await request.agent.create(host, config);
         if (!DownloadService.records.includes(record)) { await request.agent.remove(task.tid); return; }
         record.systemId = task.tid; record.nativeStarted = false; DownloadService.bind(record, task);
@@ -937,9 +928,7 @@ static async readImport(context: common.UIAbilityContext): Promise<DownloadRecor
   await DownloadService.init(context);
   try {
     const document = new picker.DocumentViewPicker(context);
-    const openOptions: picker.DocumentSelectOptions = { fileSuffixFilters: ['下载任务|.json'] };
-    PlatformApi.setMaxSelectNumber(openOptions as Object, 1);
-    const selected = await document.select(openOptions); if (!selected.length) { return undefined; }
+    const selected = await document.select({ fileSuffixFilters: ['下载任务|.json'] }); if (!selected.length) { return undefined; }
     const input = fileIo.openSync(selected[0], fileIo.OpenMode.READ_ONLY); let text: string = '';
     try {
       const size: number = fileIo.statSync(input.fd).size;

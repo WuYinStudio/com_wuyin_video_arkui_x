@@ -44,6 +44,7 @@ export struct DownloadPage {
   private disposed: boolean = false;
   // 播放入口单独防重入，不改变下载工具栏、卡片或任务按钮的可视状态。
   private openingPlayback: boolean = false;
+  private refreshTimer: number = -1;
   private listScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
@@ -52,8 +53,27 @@ export struct DownloadPage {
     Logger.info('DOWNLOAD_PAGE', '进入下载管理');
     this.refresh();
     void this.initialize();
+    this.startRefreshTicker();
   }
-  aboutToDisappear(): void { this.disposed = true; this.pressedId = ''; }
+  aboutToDisappear(): void {
+    this.disposed = true;
+    this.pressedId = '';
+    this.stopRefreshTicker();
+  }
+
+  /** 下载进度由原生任务异步回写，页面停留期间定时刷新，保证进度与按钮文字实时变化。 */
+  private startRefreshTicker(): void {
+    this.stopRefreshTicker();
+    this.refreshTimer = setInterval(() => {
+      if (!this.disposed) { this.refresh(); }
+    }, 500);
+  }
+  private stopRefreshTicker(): void {
+    if (this.refreshTimer !== -1) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = -1;
+    }
+  }
 
   private scrollRoute(): string { return this.embedded ? 'manage' : 'download'; }
 
@@ -562,7 +582,8 @@ export struct DownloadPage {
           List({ space: '12vp', scroller: this.listScroller }) {
             ForEach(this.records, (record: DownloadRecord) => {
               ListItem() { this.taskCard(record); }
-            }, (record: DownloadRecord) => record.id);
+            }, (record: DownloadRecord) => record.id + '-' + record.state + '-' +
+              String(record.progressPercent) + '-' + String(record.receivedBytes) + '-' + String(record.speedBytes));
           }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
             .onScrollStart(() => { NavigationScroll.begin(this.scrollRoute(), 'downloads', this.listScroller); })
             .onDidScroll((_scrollOffset: number, scrollState: ScrollState) => {

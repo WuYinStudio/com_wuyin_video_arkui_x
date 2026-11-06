@@ -1,5 +1,5 @@
 import { common, Want } from '@kit.AbilityKit';
-import { ShareController, ShareOperationResult, SharedData, SharedRecord, SharePreviewMode, getSharedData } from './compat/ShareCompat';
+import { systemShare } from './PlatformShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from './Logger';
@@ -9,7 +9,7 @@ const SHARE_DATA_KEY: string = 'ohos.extra.param.key.share_data';
 
 // 协播专用分享边界，不改变普通影视分享、入会协议及播放器。
 export class CoPlayShareService {
-  private static activeController?: ShareController;
+  private static activeController?: systemShare.ShareController;
   private static preparing: boolean = false;
 
   private static notify(notice: (message: string) => void, message: string): void {
@@ -25,24 +25,24 @@ export class CoPlayShareService {
       return;
     }
     CoPlayShareService.preparing = true;
-    let requestedController: ShareController | undefined;
+    let requestedController: systemShare.ShareController | undefined;
     try {
       const raw = want.parameters ? want.parameters[SHARE_DATA_KEY] : undefined;
       if (typeof raw !== 'string' || !raw.length) { throw new Error('协播分享载荷不是完整字符串'); }
       // sendData 用于接收端匹配，不能通过隐式 startAbility(sendData) 打开分享面板。
       // SharedRecord 使用 SDK 显式类型，避免 API26 Beta2 的无类型对象字面量错误。
       // content 就是完整业务 JSON，不增加 data/payload 外层，不重复序列化。
-      const record: SharedRecord = {
+      const record: systemShare.SharedRecord = {
         utd: uniformTypeDescriptor.UniformDataType.TEXT,
           content: raw,
           title: title || '无音影视协播邀请',
           description: '接收设备需安装无音影视；请选择华为分享发送协播邀请'
       };
-      const sharedData: SharedData = new SharedData(record);
-      const controller: ShareController = new ShareController(sharedData);
+      const sharedData: systemShare.SharedData = new systemShare.SharedData(record);
+      const controller: systemShare.ShareController = new systemShare.ShareController(sharedData);
       requestedController = controller;
       CoPlayShareService.activeController = controller;
-      controller.on('shareCompleted', (result: ShareOperationResult): void => {
+      controller.on('shareCompleted', (result: systemShare.ShareOperationResult): void => {
         try {
           CoPlayInviteHandoff.logText('SendShareResult', '系统分享结果（不代表已经入会）', JSON.stringify(result));
         } catch (error) {
@@ -62,7 +62,7 @@ export class CoPlayShareService {
       });
       CoPlayShareService.notify(notice, '正在打开协播分享，请选择华为分享');
       Logger.info('MEDIA_SESSION', '【CoPlay][SendShare] 正在调用 ShareKit.ShareController.show，utd=general.text，content字符数=' + raw.length);
-      await controller.show(context, { previewMode: SharePreviewMode.DEFAULT });
+      await controller.show(context, { previewMode: systemShare.SharePreviewMode.DEFAULT });
       Logger.info('MEDIA_SESSION', '【CoPlay][SendShare] ShareKit.show 请求已返回，投递结果以系统回调和接收端日志为准');
     } catch (error) {
       if (CoPlayShareService.activeController === requestedController) {
@@ -86,15 +86,15 @@ export class CoPlayShareService {
     // 系统可能把 SharedData 编码进 share_data，不能把系统封装直接当作业务 JSON。
     // 用官方接口读取 record.content，再由 EntryAbility 对业务顶层 JSON 仅解析一次。
     // 不自行解析系统封装，也不增加业务 data/payload 嵌套解包；兼容旧端直接传原文。
-    let sharedData: SharedData | undefined;
+    let sharedData: systemShare.SharedData | undefined;
     try {
       // API26 Beta2 返回 Promise<SharedData>，必须等待完成后才能读取记录。
-      sharedData = await getSharedData(want);
+      sharedData = await systemShare.getSharedData(want);
     } catch (_) {
       Logger.debug('MEDIA_SESSION', '【CoPlay][ReceiveShare] 当前 Want 不是 ShareKit SharedData，继续使用原始 share_data');
     }
     if (sharedData) {
-      const records: SharedRecord[] = sharedData.getRecords();
+      const records: systemShare.SharedRecord[] = sharedData.getRecords();
       Logger.info('MEDIA_SESSION', '【CoPlay][ReceiveShare] ShareKit 记录数=' + records.length);
       let content: string | undefined;
       for (const record of records) {

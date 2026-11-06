@@ -11,11 +11,16 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
-    // ArkUI-X：Android 侧只识别自定义 Scheme（wuyin://player），AndroidManifest 中另声明
-    // ACTION_VIEW / ACTION_SEND intent-filter；iOS 侧在 Info.plist 注册 CFBundleURLTypes。
     "querySchemes": [
-      "wuyin"
+      "wuyin",
+      "mqq",
+      "mqqapi",
+      "mqqopensdkapi",
+      "qqopensdk",
+      "tim",
+      "timapi"
     ],
+    // 保留原有网络权限；分布式设备发现另申请用户授权，不影响分享扩展。
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET",
@@ -38,9 +43,40 @@
         }
       },
       {
-        // 仅供 HarmonyOS 构建需要；Android 的局域网/本地网络权限、iOS 的
-        // NSLocalNetworkUsageDescription 由平台工程声明。
         "name": "ohos.permission.DISTRIBUTED_DATASYNC",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        // 扫一扫：调起相机扫描无音影视分享的二维码。
+        "name": "ohos.permission.CAMERA",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        // 聊天室语音消息：按住录音，录制在本地后上传图床换取直链。
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:module_desc",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        // 播放器「后台播放」：退到后台时继续播放音频。
+        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
         "reason": "$string:module_desc",
         "usedScene": {
           "abilities": [
@@ -55,12 +91,16 @@
         "name": "EntryAbility",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:icon",
+        "icon": "$media:layered_image",
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "launchType": "singleton",
+        // 后台播放：声明音频播放后台模式，连续任务校验会检查该字段。
+        "backgroundModes": [
+          "audioPlayback"
+        ],
         "skills": [
           {
             "entities": [
@@ -85,10 +125,42 @@
             ]
           },
           {
-            // Android/iOS 通过「打开方式/分享」把协播同步 TXT 交给本应用时，
-            // 统一由 EntryAbility 解析 Want.uri 或 share_data 参数。
+            // QQ/TG 机器人富文本卡片：wuyinvideo://audio|play|notice|download|post
             "actions": [
               "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "uris": [
+              {
+                "scheme": "wuyinvideo"
+              }
+            ]
+          },
+          {
+            // 支持文件管理器/聊天应用通过“打开方式”把协播同步分享 TXT 交给无音影视。
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "utd": "general.text",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.plain-text",
+                "maxFileSupported": 1
+              }
+            ]
+          },
+          {
+            // 直接作为 ShareKit 文本接收目标注册；某些系统版本会把数据封装在 Want 中，
+            // EntryAbility 通过 systemShare.getSharedData(want) 读取，不能只依赖 share_data 参数。
+            "actions": [
+              "ohos.want.action.sendData"
             ],
             "uris": [
               {
@@ -106,7 +178,5 @@
         ]
       }
     ]
-    // ArkUI-X 不支持 extensionAbilities（系统分享扩展），原 ShareExtensionAbility 已归档到
-    // legacy/harmonyos-only/，分享接收改由 EntryAbility + 平台 intent-filter/URL Scheme 承担。
   }
 }

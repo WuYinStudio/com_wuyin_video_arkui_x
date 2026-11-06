@@ -3,7 +3,6 @@ import { webview } from '@kit.ArkWeb';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 class SniffParams {
   url: string = '';
@@ -86,7 +85,7 @@ struct PlatformSnifferPage {
     if (Number(router.getLength()) > 1) {
       router.back();
     } else {
-      void replaceRoute({ url: 'pages/Index' });
+      void router.pushUrl({ url: 'pages/Index' });
     }
   }
 

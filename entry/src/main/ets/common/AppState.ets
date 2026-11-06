@@ -14,7 +14,7 @@ export class ImmersiveConfig {
   enabled: boolean = true;
   blur: number = 20;
   opacity: number = 0.8;
-  dark: boolean = true;
+  dark: boolean = false;
   autoColorEnable: boolean = true;
 }
 export class Film {
@@ -59,7 +59,7 @@ interface RecordRouteParams {
 export class AppState {
   static config: ImmersiveConfig = new ImmersiveConfig();
   static playerKernel: string = 'ijk';
-  static themeMode: string = 'system';
+  static themeMode: string = 'light';
   // 聊天提醒：提示音 / 顶部弹窗 / 免打扰，均由设置页开关持久化后发布到 AppStorage。
   static chatSoundEnabled: boolean = true;
   static chatBannerEnabled: boolean = true;
@@ -73,7 +73,7 @@ export class AppState {
   static dockScale: number = 1;
   static fontScale: number = 1;
   private static systemDark: boolean = true;
-  private static publishedDark: boolean = true;
+  private static publishedDark: boolean = false;
   private static favoritesLoaded: boolean = false;
   private static favoriteEdits: Map<number, boolean> = new Map();
   private static persistence: Promise<void> = Promise.resolve();
@@ -118,8 +118,8 @@ export class AppState {
           }
         }
       } catch (error) { Logger.warn('IMMERSIVE_CONFIG', '读取沉浸配置失败，保留兼容设置：' + String(error)); }
-      const savedMode: string = String(await AppState.prefs.get('themeMode', 'system'));
-      AppState.themeMode = savedMode === 'dark' || savedMode === 'light' ? savedMode : 'system';
+      const savedMode: string = String(await AppState.prefs.get('themeMode', 'light'));
+      AppState.themeMode = savedMode === 'dark' || savedMode === 'light' ? savedMode : 'light';
       AppState.config.dark = AppState.themeMode === 'system' ? AppState.systemDark : AppState.themeMode === 'dark';
       const savedKernel = String(await AppState.prefs.get('playerKernel', 'ijk'));
       AppState.playerKernel = savedKernel === 'av' ? 'av' : 'ijk';
@@ -209,6 +209,9 @@ export class AppState {
     Logger.info('APP_THEME', '应用主题模式：' + AppState.themeMode);
   }
   static publish(): void {
+    // 手动浅色/深色一经选择，始终固定该模式，不被主题或壁纸回调改回。
+    if (AppState.themeMode === 'light') { AppState.config.dark = false; }
+    if (AppState.themeMode === 'dark') { AppState.config.dark = true; }
     AppState.immersiveConfig = {
       immersiveEnable: AppState.config.enabled,
         immersiveBlur: AppState.config.blur,
@@ -338,6 +341,9 @@ export class AppState {
     }
   }
   static save(): Promise<void> {
+    // 手动模式保持固定；只有跟随系统时才允许 config.dark 自动变化。
+    if (AppState.themeMode === 'light') { AppState.config.dark = false; }
+    if (AppState.themeMode === 'dark') { AppState.config.dark = true; }
     // 兼容原设置页直接修改 config.dark；系统回调先 publish，不会误转为手动模式。
     if (AppState.config.dark !== AppState.publishedDark) { AppState.themeMode = AppState.config.dark ? 'dark' : 'light'; }
     AppState.snapshotFavorites();

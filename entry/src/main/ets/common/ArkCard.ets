@@ -29,6 +29,10 @@ export class ArkCard {
   cover: string = '';
   source: string = '';
   icon: string = '';
+  /** serviceID=2 音频模板里的 <audio src="…">：语音卡片直接播这个直链。 */
+  audioUrl: string = '';
+  /** <audio duration="2">：语音秒数，卡片右下角显示用。 */
+  audioDuration: number = 0;
 }
 
 /** 是否是 QQ 风格 XML 卡片。 */
@@ -58,6 +62,9 @@ export function parseArkCard(content: string): ArkCard | undefined {
     card.summary = tag(text, 'summary');
     card.desc = clean(tag(text, 'desc'));
     card.cover = tag(text, 'pic') || attrText(text, '<audio', 'cover');
+    card.audioUrl = attrText(text, '<audio', 'src');
+    const audioSeconds: number = Number(attrText(text, '<audio', 'duration'));
+    card.audioDuration = Number.isFinite(audioSeconds) && audioSeconds > 0 ? audioSeconds : 0;
     const sourceBlock: string = block(text, '<source', 'name="', '"');
     card.source = sourceBlock.length > 0 ? sourceBlock : '无音影视';
     card.icon = attrText(text, '<source', 'icon');

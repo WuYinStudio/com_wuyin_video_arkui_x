@@ -1,9 +1,9 @@
 import { common } from '@kit.AbilityKit';
-import { fileIo, storageStatistics } from '@kit.CoreFileKit';
+import { fileIo } from '@kit.CoreFileKit';
+import { storageStatistics } from './PlatformStorage';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from './Logger';
-import { PlatformApi } from './compat/PlatformApi';
 
 class OfflinePart {
   localPath: string = '';
@@ -292,9 +292,9 @@ static async prepareHls(source: string, context: common.UIAbilityContext, cancel
     manifestPath = LocalPlaybackService.checkedPath(source, context);
     Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + manifestPath + '，校验离线清单，跳过远程鉴权');
     const plan: OfflinePlan = LocalPlaybackService.parse(manifestPath, context);
+    const free: number = await storageStatistics.getFreeSize();
     LocalPlaybackService.checkCancelled(cancelled);
-    const free: number = await PlatformApi.freeSpaceBytes();
-    if (free >= 0 && free < plan.estimatedBytes + 16 * 1024 * 1024) {
+    if (!Number.isFinite(free) || free < plan.estimatedBytes + 16 * 1024 * 1024) {
       throw new Error('本地视频播放缓存空间不足，请清理空间后重试');
     }
     outputPath = context.cacheDir + '/wuyin_offline_playback_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1000000).toString(36) + (plan.fragmentedMp4 ? '.mp4' : '.ts');

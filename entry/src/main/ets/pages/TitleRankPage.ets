@@ -3,7 +3,6 @@ import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { UserTitle, UserTitles } from '../common/UserTitles';
 import { AuroraBackdrop, GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 class TitleRankParams {
   level: string = '';
@@ -59,7 +58,7 @@ struct TitleRankPage {
       router.back();
       return;
     }
-    void replaceRoute({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
   }
 
   @Builder

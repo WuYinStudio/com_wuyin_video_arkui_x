@@ -1,7 +1,7 @@
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { preferences, uniformTypeDescriptor } from '@kit.ArkData';
-import { ShareController, ShareOperationResult, SharedData, SharedRecord, SharePreviewMode } from '../common/compat/ShareCompat';
+import { systemShare } from '../common/PlatformShareKit';
 import { AppConfig } from '../common/AppConfig';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession, CommunityUser, RemoteUpdate } from '../common/CommunityApi';
@@ -14,8 +14,6 @@ import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassIconButton, PrimaryButton, SectionHeader } from '../common/UiWidgets';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { fileIo } from '@kit.CoreFileKit';
-import { replaceRoute } from '../common/compat/RouterCompat';
-import { PlatformApi } from '../common/compat/PlatformApi';
 
 export interface UserInfo {
   userId: string;
@@ -97,6 +95,24 @@ class MessageRouteOptions {
   constructor(room: string) {
     this.params = new MessageRouteParams(room);
   }
+}
+
+class ShareDataOptions implements systemShare.SharedDataOptions {
+  utd: uniformTypeDescriptor.UniformDataType;
+  content: string;
+  title: string;
+  description: string;
+
+  constructor(content: string, title: string, description: string) {
+    this.utd = uniformTypeDescriptor.UniformDataType.HYPERLINK;
+    this.content = content;
+    this.title = title;
+    this.description = description;
+  }
+}
+
+class SharePreviewOptions implements systemShare.ShareOptions {
+  previewMode: systemShare.SharePreviewMode = systemShare.SharePreviewMode.DEFAULT;
 }
 
 class EdgePadding {
@@ -509,7 +525,7 @@ export struct MyPage {
     this.redirectingLogin = true;
     const loginRouteUri: string = 'pages/LoginPage';
     try {
-      await replaceRoute(new RouteOptions(loginRouteUri));
+      await router.pushUrl(new RouteOptions(loginRouteUri));
       Logger.info('MyPageRoute', '已跳转登录页，URI=' + loginRouteUri);
     } catch (error) {
       this.redirectingLogin = false;
@@ -778,21 +794,17 @@ export struct MyPage {
         return;
       }
       const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const shareRecord: SharedRecord = {
-        utd: 'general.hyperlink',
-        content: downloadUrl,
-        title: '无音影视 ' + update.version,
-        description: update.content || '分享无音影视，打开链接获取最新版本'
-      };
-      const sharedData: SharedData = new SharedData(shareRecord);
-      const controller: ShareController = new ShareController(sharedData);
-      controller.on('shareCompleted', (result: ShareOperationResult): void => {
+      const sharedData: systemShare.SharedData = new systemShare.SharedData(
+        new ShareDataOptions(downloadUrl, '无音影视 ' + update.version,
+          update.content || '分享无音影视，打开链接获取最新版本'));
+      const controller: systemShare.ShareController = new systemShare.ShareController(sharedData);
+      controller.on('shareCompleted', (result: systemShare.ShareOperationResult): void => {
         Logger.info('MyPageShare', '系统分享完成：' + JSON.stringify(result));
       });
       controller.on('dismiss', (): void => {
         Logger.info('MyPageShare', '系统分享面板已关闭');
       });
-      await controller.show(context);
+      await controller.show(context, new SharePreviewOptions());
       Logger.info('MyPageShare', '已调用系统分享能力，版本=' + update.version);
     } catch (error) {
       const failure: Error = new Error('分享软件失败：' + this.errorMessage(error));
@@ -879,7 +891,8 @@ export struct MyPage {
         await this.checkPermissionClick();
         break;
       case 'update':
-        await this.showUpdateInfo();
+        // 「我的」页更新日志入口与设置页统一跳到更新日志页面。
+        await this.navigate('pages/UpdateLogPage');
         break;
       case 'about':
         this.showAlert('关于我们', '无音影视致力于提供简洁、稳定的观影体验');
@@ -887,17 +900,6 @@ export struct MyPage {
       default:
         Logger.warn('MyPageBusiness', '未识别的功能入口：' + item.key);
         break;
-    }
-  }
-
-  private async showUpdateInfo(): Promise<void> {
-    try {
-      const update: RemoteUpdate = await CommunityApi.remoteUpdate();
-      this.showAlert('版本信息', '当前版本 ' + update.version + String.fromCharCode(10) + update.content);
-      Logger.info('MyPageBusiness', '读取远程版本信息成功：' + update.version);
-    } catch (error) {
-      Logger.warn('MyPageBusiness', '读取远程版本信息失败：' + String(error));
-      this.showAlert('版本信息', '暂时无法获取版本信息，请稍后重试');
     }
   }
 
@@ -923,7 +925,7 @@ export struct MyPage {
   private contentMaxWidth(): number {
     const availableWidth: number = Number.isFinite(this.viewportWidth) && this.viewportWidth > 0 ? this.viewportWidth : 360;
     const gutter: number = Ui.gutter(availableWidth);
-    const limit: number = Math.min(availableWidth, 1180);
+    const limit: number = Math.min(availableWidth, Ui.contentMax(availableWidth));
     return Math.min(availableWidth, limit + gutter * 2);
   }
 
@@ -1111,8 +1113,6 @@ export struct MyPage {
       const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
       const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
       options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      PlatformApi.setMaxSelectNumber(options as Object, 1);
-      
       const result: photoAccessHelper.PhotoSelectResult = await picker.select(options);
       if (result.photoUris.length === 0) { return; }
       const uri: string = result.photoUris[0];
@@ -1803,6 +1803,7 @@ export struct MyPage {
         .width('100%')
         .height('100%')
         .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
         .onScrollStart(() => { NavigationScroll.begin('mine', 'content', this.pageScroller); })
         .onDidScroll((_xOffset: number, _yOffset: number, scrollState: ScrollState) => {
           NavigationScroll.report('mine', 'content', this.pageScroller, scrollState);

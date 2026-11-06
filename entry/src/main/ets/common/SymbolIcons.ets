@@ -70,7 +70,10 @@ export class SymbolIcons {
   static bell(): Resource { return $r('sys.symbol.bell'); }
   static wallet(): Resource { return $r('sys.symbol.creditcard'); }
   static calendar(): Resource { return $r('sys.symbol.calendar'); }
-  static trophy(): Resource { return $r('sys.symbol.list_bullet'); }
+  // 排行榜/荣誉：用鸿蒙原生的奖杯符号（原先误用了 list_bullet，看起来像「列表」）。
+  static trophy(): Resource { return $r('sys.symbol.star_trophy'); }
+  // 实心奖杯：入口按钮用，比线性图标更醒目。
+  static trophyFill(): Resource { return $r('sys.symbol.star_trophy_fill'); }
   static list(): Resource { return $r('sys.symbol.list_bullet'); }
   static palette(): Resource { return $r('sys.symbol.paintpalette'); }
   static terminal(): Resource { return $r('sys.symbol.doc_text'); }

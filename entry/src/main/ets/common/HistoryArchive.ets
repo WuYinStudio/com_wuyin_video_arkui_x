@@ -4,7 +4,6 @@ import { zlib } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { WatchRecord } from './AppState';
 import { Logger } from './Logger';
-import { PlatformApi } from './compat/PlatformApi';
 
 /** 播放历史归档：固定 zip 文件名及包内 txt 文件名。 */
 export class HistoryArchive {
@@ -24,9 +23,9 @@ export class HistoryArchive {
 
   private static async chooseOpenFile(context: common.UIAbilityContext): Promise<string | undefined> {
     const documentPicker = new picker.DocumentViewPicker(context);
-    const openOptions: picker.DocumentSelectOptions = { fileSuffixFilters: ['.zip'] };
-    PlatformApi.setMaxSelectNumber(openOptions as Object, 1);
-    const result = await documentPicker.select(openOptions);
+    const result = await documentPicker.select({
+      fileSuffixFilters: ['.zip']
+    });
     return result && result.length > 0 ? result[0] : undefined;
   }
 

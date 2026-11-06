@@ -2,6 +2,7 @@
   "src": [
     "pages/Index",
     "pages/PlayerPage",
+    "pages/CastControlPage",
     "pages/LoginPage",
     "pages/RegisterPage",
     "pages/MessagePage",
@@ -17,10 +18,13 @@
     "pages/ForumDetailPage",
     "pages/AccountCenterPage",
     "pages/TitleRankPage",
-    "pages/UserAgreementPage",
     "pages/AvatarUploadPage",
     "pages/PlatformSnifferPage",
     "pages/FollowListPage",
-    "pages/RankPage"
+    "pages/RankPage",
+    "pages/UserAgreementPage",
+    "pages/ScanPage",
+    "pages/ShareQrPage",
+    "pages/UpdateLogPage"
   ]
 }

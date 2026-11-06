@@ -6,6 +6,7 @@ import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { SearchSource, SearchSources, VodItem } from '../common/SearchSources';
+import { SourceRules } from '../common/SourceRules';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, EmptyState, GlassChip, GlassIconButton, GlassSearchBar,
   SegmentedGlassTabs } from '../common/UiWidgets';
@@ -36,6 +37,10 @@ interface VodRecord {
   wzlj?: string;
   genxi?: string;
   zyuanuuu?: string;
+  /** TVBox/苹果CMS 的其余播放线路（每条已归一成 集名$地址#… 的字符串）。 */
+  vod_play_groups?: string[];
+  /** 与线路对应的线路名（来自 vod_play_from，用 $$$ 分隔）。 */
+  vod_play_names?: string[];
 }
 interface BaofengHotWord {
   word?: string;
@@ -63,6 +68,17 @@ interface SearchResultItem extends VodItem {
   wzlj: string;
   genxi: string;
   zyuanuuu: string;
+  /** 同名影片合并后的全部接口资源（JSON 数组），写进播放器页面的「线路」里。 */
+  lineSources: string;
+}
+
+/** 一条搜索接口资源：同名影片在某个接口下的选集数据。 */
+class LineSourceEntry {
+  name: string = '';
+  wzlj: string = '';
+  genxi: string = '';
+  data: string = '';
+  vodId: string = '';
 }
 
 // 路由参数使用具体类传递，避免将接口类型直接赋给 router 的 Object 参数。
@@ -76,6 +92,7 @@ class SearchRouteParams implements SearchPlayerParams {
   genxi: string;
   zyuanuuu: string;
   vodId: string;
+  lineSources: string;
 
   constructor(item: SearchResultItem) {
     this.yhm = item.yhm;
@@ -87,6 +104,7 @@ class SearchRouteParams implements SearchPlayerParams {
     this.genxi = item.genxi;
     this.zyuanuuu = item.zyuanuuu;
     this.vodId = item.vod_id;
+    this.lineSources = item.lineSources;
   }
 }
 
@@ -111,6 +129,7 @@ export struct SearchPage {
   @State private items: SearchResultItem[] = [];
   @State private busy: boolean = false;
   @State private pressedId: string = '';
+  @State private hoveredId: string = '';
   @State private message: string = '';
   @State private records: string[] = [];
   @State private hotWords: string[] = ['高分电影', '热播电视剧', '新番动漫', '热门综艺'];
@@ -295,55 +314,142 @@ export struct SearchPage {
       const name: string = String(row.yhm || row.vod_name || row.name || '');
       const summary: string = String(row.sfeng || row.vod_remarks || row.remarks || '');
       const address: string = String(row.wzlj || row.playUrl || row.vod_play_url || row.url || '').trim();
+      // TVBox / 苹果CMS 同一接口里的其余播放线路，转成播放器可切换的线路结构。
+      const extraGroups: string[] = Array.isArray(row.vod_play_groups) ? row.vod_play_groups : [];
+      const extraNames: string[] = Array.isArray(row.vod_play_names) ? row.vod_play_names : [];
+      const extraEntries: LineSourceEntry[] = [];
+      for (let index = 0; index < extraGroups.length; index++) {
+        const groupUrl: string = String(extraGroups[index] || '').trim();
+        if (groupUrl.length === 0) { continue; }
+        const groupName: string = index < extraNames.length && String(extraNames[index] || '').trim().length > 0
+          ? String(extraNames[index]).trim() : ('线路' + String(index + 2));
+        const entry: LineSourceEntry = new LineSourceEntry();
+        entry.name = groupName;
+        entry.wzlj = groupUrl;
+        entry.genxi = '';
+        entry.data = '';
+        entry.vodId = '';
+        extraEntries.push(entry);
+      }
       const item: SearchResultItem = { vod_name: name, vod_id: String(row.vod_id || row.id || ''),
           vod_pic: coverUrl, vod_class: String(row.data || row.vod_class || row.type_name || ''),
           vod_remarks: summary, playUrl: address,
           yhm: name, feng: coverUrl, sfeng: summary, data: String(row.data || row.vod_class || row.type_name || ''),
           tilie: row.tilie === undefined || row.tilie === null ? '' : String(row.tilie),
           wzlj: address, genxi: String(row.genxi || row.remarks || row.vod_remarks || ''),
-          zyuanuuu: String(row.zyuanuuu || source.name || '') };
+          zyuanuuu: String(row.zyuanuuu || source.name || ''),
+          lineSources: extraEntries.length > 0 ? JSON.stringify(extraEntries) : '' };
       return item;
     });
   }
   private async searchSource(source: SearchSource, word: string, version: number): Promise<SearchResultItem[]> {
-    const request = http.createHttp();
+    // 已停用的线路不发起搜索，避免无用请求与噪音结果。
+    if (source.enabled === false) { return []; }
     try {
-      const response = await request.request(source.url + encodeURIComponent(word), {
-        method: http.RequestMethod.GET, connectTimeout: 8000, readTimeout: 10000
-      });
-      if (response.responseCode < 200 || response.responseCode >= 300) {
-        throw new Error('搜索服务错误 ' + response.responseCode);
-      }
-      return version === this.requestVersion ? this.parseResults(String(response.result), source) : [];
+      // 统一交给规则引擎：cms/tvbox 透传接口原文；web/netdisk 由规则引擎抓取后包装成 CMS 形态。
+      const body: string = await SourceRules.fetchText(source, word);
+      return version === this.requestVersion ? this.parseResults(body, source) : [];
     } catch (error) {
       Logger.warn('SearchEngineLoad', '线路「' + source.name + '」搜索失败：' + String(error));
       return [];
-    } finally {
-      request.destroy();
     }
   }
 
-  /** 按片名去重：同名影片只保留一条；若首条没有播放地址而后续线路有，则用后续线路补全。 */
+  /**
+   * 按片名合并：同名影片只保留一条展示，同时把各搜索接口的选集资源合并进 lineSources，
+   * 播放器据此生成可切换的「线路」，某个接口连续失败 3 次可自动换到另一个接口。
+   */
   private mergeByTitle(groups: SearchResultItem[][]): SearchResultItem[] {
-    const titles: string[] = [];
-    const merged: SearchResultItem[] = [];
+    const order: string[] = [];
+    const buckets: Map<string, SearchResultItem[]> = new Map<string, SearchResultItem[]>();
     for (const group of groups) {
       for (const item of group) {
         const title: string = String(item.yhm || item.vod_name || '').trim();
-        const key: string = title.toLowerCase();
-        if (!key) {
-          continue;
-        }
-        const index: number = titles.indexOf(key);
-        if (index < 0) {
-          titles.push(key);
-          merged.push(item);
-        } else if (!merged[index].playUrl && item.playUrl) {
-          merged[index] = item;
+        // 归一化：忽略大小写、空格和常见分隔符，避免「斗破苍穹 / 斗破苍穹 年番」之外的写法差异造成重复。
+        const key: string = title.toLowerCase().replace(/\s+/g, '');
+        if (!key) { continue; }
+        const bucket: SearchResultItem[] | undefined = buckets.get(key);
+        if (bucket === undefined) {
+          order.push(key);
+          buckets.set(key, [item]);
+        } else {
+          bucket.push(item);
         }
       }
     }
+    const merged: SearchResultItem[] = [];
+    for (const key of order) {
+      const bucket: SearchResultItem[] = buckets.get(key) || [];
+      if (bucket.length === 0) { continue; }
+      // 主条目：优先选有播放地址的接口，否则用第一条。
+      let primary: SearchResultItem = bucket[0];
+      for (const item of bucket) {
+        if ((item.wzlj || '').trim().length > 0) { primary = item; break; }
+      }
+      const lines: LineSourceEntry[] = [];
+      const seen: string[] = [];
+      for (const item of bucket) {
+        const url: string = (item.wzlj || '').trim();
+        if (url.length === 0) { continue; }
+        const name: string = (item.zyuanuuu || '').trim() || '默认接口';
+        const sign: string = name + '|' + url;
+        if (seen.indexOf(sign) >= 0) { continue; }
+        seen.push(sign);
+        const entry: LineSourceEntry = new LineSourceEntry();
+        entry.name = name;
+        entry.wzlj = url;
+        entry.genxi = item.genxi || '';
+        entry.data = item.data || '';
+        entry.vodId = item.vod_id || '';
+        lines.push(entry);
+        // TVBox / 苹果CMS 同一接口内的多条线路（vod_play_groups）也一起写进播放器线路。
+        if ((item.lineSources || '').length > 0) {
+          try {
+            const extras: LineSourceEntry[] = JSON.parse(item.lineSources) as LineSourceEntry[];
+            for (const extra of extras) {
+              const extraUrl: string = (extra.wzlj || '').trim();
+              if (extraUrl.length === 0) { continue; }
+              const extraSign: string = (extra.name || '') + '|' + extraUrl;
+              if (seen.indexOf(extraSign) >= 0) { continue; }
+              seen.push(extraSign);
+              lines.push(extra);
+            }
+          } catch (error) {
+            Logger.warn('SearchEngineLoad', '解析接口内多线路失败：' + String(error));
+          }
+        }
+      }
+      const mergedItem: SearchResultItem = {
+        vod_name: primary.vod_name,
+        vod_id: primary.vod_id,
+        vod_pic: primary.vod_pic,
+        vod_class: primary.vod_class,
+        vod_remarks: primary.vod_remarks,
+        playUrl: primary.playUrl,
+        yhm: primary.yhm,
+        feng: primary.feng,
+        sfeng: primary.sfeng,
+        data: primary.data,
+        tilie: primary.tilie,
+        wzlj: primary.wzlj,
+        genxi: primary.genxi,
+        zyuanuuu: primary.zyuanuuu,
+        lineSources: lines.length > 1 ? JSON.stringify(lines) : ''
+      };
+      merged.push(mergedItem);
+    }
     return merged;
+  }
+
+  /** 合并结果里可用的接口线路数（1 表示只有一个接口，不必显示线路徽标）。 */
+  private lineCount(item: SearchResultItem): number {
+    if (!item.lineSources) { return 1; }
+    try {
+      const list = JSON.parse(item.lineSources) as LineSourceEntry[];
+      return Array.isArray(list) && list.length > 0 ? list.length : 1;
+    } catch (_) {
+      return 1;
+    }
   }
 
   private async search(): Promise<void> {
@@ -373,8 +479,8 @@ export struct SearchPage {
         this.items = merged;
         this.message = merged.length === 0 ? '所有线路均未找到相关影片' : '';
         this.remember(word);
-        Logger.info('SearchEngineLoad', '全部线路并发搜索完成，线路=' + String(groups.length) +
-          '，去重后=' + String(merged.length) + ' 条');
+        Logger.info('SearchEngineLoad', '全部线路并发搜索完成，接口=' + String(groups.length) +
+          '，按片名合并后=' + String(merged.length) + ' 部（同名影片已合并接口线路）');
       }
     } catch (error) {
       Logger.error('SearchEngineLoad', '并发搜索失败：' + String(error));
@@ -808,6 +914,10 @@ export struct SearchPage {
           .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         Row({ space: 6 }) {
           GlassChip({ label: item.vod_class || '未分类', compact: true })
+          // 多接口同名影片：标出可切换的线路数，播放页里能直接换接口。
+          if (this.lineCount(item) > 1) {
+            GlassChip({ label: String(this.lineCount(item)) + ' 个接口', selected: true, compact: true })
+          }
         }
           .width('100%')
         Text(item.vod_remarks || '暂无备注')
@@ -831,15 +941,26 @@ export struct SearchPage {
       .padding(Ui.S_MD)
       .backgroundColor(Ui.glassTintSoft(this.dark))
       .borderRadius(Ui.R_MD)
-      .border({ width: 1, color: Ui.cardBorderSoft(this.dark) })
-      .shadow({ radius: 14, color: Ui.shadowSoft(this.dark), offsetY: 6 })
+      .border({
+        width: this.hoveredId === item.vod_id ? 1.5 : 1,
+        color: this.hoveredId === item.vod_id ? Ui.accent(this.dark) : Ui.cardBorderSoft(this.dark)
+      })
+      .shadow({
+        radius: this.hoveredId === item.vod_id ? 26 : 14,
+        color: this.hoveredId === item.vod_id ? Ui.accentGlow(this.dark) : Ui.shadowSoft(this.dark),
+        offsetY: this.hoveredId === item.vod_id ? 12 : 6
+      })
+      .translate({ y: this.hoveredId === item.vod_id ? -4 : 0 })
       .scale({
-        x: this.pressedId === item.vod_id ? 0.97 : 1,
-        y: this.pressedId === item.vod_id ? 0.97 : 1
+        x: this.pressedId === item.vod_id ? 0.97 : (this.hoveredId === item.vod_id ? 1.02 : 1),
+        y: this.pressedId === item.vod_id ? 0.97 : (this.hoveredId === item.vod_id ? 1.02 : 1)
+      })
+      .onHover((isHover: boolean) => {
+        this.hoveredId = isHover ? item.vod_id : (this.hoveredId === item.vod_id ? '' : this.hoveredId);
       })
       .onTouch((event: TouchEvent) => { this.pressedId = event.type === TouchType.Down ? item.vod_id : ''; })
       .onClick(() => { void this.play(item); }).gesture(LongPressGesture().onAction(() => { this.openDetail(item); }))
-      .animation({ duration: UiMotion.PRESS, curve: Curve.FastOutSlowIn })
+      .animation({ duration: UiMotion.BASE, curve: Curve.FastOutSlowIn })
       .transition(TransitionEffect.OPACITY)
   }
   @Builder private resultList(listScroller: Scroller, scrollSource: string) {
@@ -858,8 +979,11 @@ export struct SearchPage {
               .justifyContent(FlexAlign.Center)
           } else {
             EmptyState({
-              title: this.message || (this.query.trim() ? '没有找到相关影片' : '输入关键词开始搜索'),
-              hint: this.query.trim() ? '换个关键词，或在「资源线路」中切换线路' : '支持影片名、演员和导演',
+              title: this.message || (this.sources.length === 0 ? '还没有添加任何资源接口'
+                : (this.query.trim() ? '没有找到相关影片' : '输入关键词开始搜索')),
+              hint: this.sources.length === 0
+                ? '应用不内置影视接口，请在「设置 > 搜索源管理」里添加自定义规则、导入线路文件或填写远端地址'
+                : (this.query.trim() ? '换个关键词，或在「资源线路」中切换线路' : '支持影片名、演员和导演'),
               icon: SymbolIcons.doc()
             })
           }
@@ -964,3 +1088,7 @@ export struct SearchPage {
       .onAreaChange((_old: Area, area: Area) => { this.updateViewportWidth(area); })
   }
 }
+
+
+
+

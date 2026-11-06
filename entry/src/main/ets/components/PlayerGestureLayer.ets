@@ -21,9 +21,11 @@ export struct PlayerGestureLayer {
   onSeek: (targetMs: number) => Promise<void> = async (_targetMs: number): Promise<void> => {};
   onVolume: (level: number) => void = (_level: number): void => {};
   onBrightnessMask: (level: number) => void = (_level: number): void => {};
+  onSpeedBoost: (active: boolean) => void = (_active: boolean): void => {};
   @State private hintVisible: boolean = false;
   @State private hintText: string = '';
   @State private hintKind: string = 'seek';
+  @State private boosting: boolean = false;
   private playerBrightness: AppBrightnessUtil = new AppBrightnessUtil();
   private lightLevel: number = 0.5;
   private brightnessTouched: boolean = false;
@@ -32,6 +34,7 @@ export struct PlayerGestureLayer {
   private brightnessPreparing: boolean = false;
   private soundLevel: number = 1;
   private measuredSpan: number = 1;
+  private measuredHeight: number = 1;
   private axis: string = '';
   private tracking: boolean = false;
   private leftSide: boolean = true;
@@ -130,6 +133,29 @@ export struct PlayerGestureLayer {
       if (!this.locked()) { await this.onToggle(); }
     } catch (error) { Logger.error('PLAYER_GESTURE', '双击播放控制失败：' + String(error)); }
   }
+  /** 长按 3 倍速：按住时提速，松手恢复；提示条复用滑动提示。 */
+  private beginSpeedBoost(): void {
+    try {
+      if (!this.living || this.isSlaveMode || this.receiverLocked || this.boosting) { return; }
+      this.boosting = true;
+      this.hintKind = 'speed';
+      this.hintText = '3× 倍速播放中';
+      this.hintVisible = true;
+      this.clearHintTimer();
+      this.onSpeedBoost(true);
+      Logger.debug('PLAYER_GESTURE', '长按 3 倍速开始');
+    } catch (error) { Logger.warn('PLAYER_GESTURE', '开始长按倍速失败：' + String(error)); }
+  }
+  private endSpeedBoost(): void {
+    try {
+      if (!this.boosting) { return; }
+      this.boosting = false;
+      this.hintVisible = false;
+      this.clearHintTimer();
+      this.onSpeedBoost(false);
+      Logger.debug('PLAYER_GESTURE', '长按 3 倍速结束');
+    } catch (error) { Logger.warn('PLAYER_GESTURE', '结束长按倍速失败：' + String(error)); }
+  }
   private start(event: GestureEvent): void {
     try {
       this.tracking = false;
@@ -218,7 +244,8 @@ export struct PlayerGestureLayer {
   }
   private hintSymbol(): Resource {
     return this.hintKind === 'light' ? $r('sys.symbol.sun_max_fill') :
-      this.hintKind === 'sound' ? $r('sys.symbol.speaker_wave_3_fill') : $r('sys.symbol.arrow_left_arrow_right');
+      this.hintKind === 'sound' ? $r('sys.symbol.speaker_wave_3_fill') :
+        this.hintKind === 'speed' ? $r('sys.symbol.video_speed') : $r('sys.symbol.arrow_left_arrow_right');
   }
   private panelTint(): string {
     const alpha: number = this.immersion.immersiveEnable ? Math.max(0.65, Math.min(1, this.immersion.immersiveOpacity)) : 1;
@@ -236,7 +263,9 @@ export struct PlayerGestureLayer {
       .onAreaChange((_old: Area, area: Area): void => {
       try {
         const measured: number = Number(area.width);
+        const measuredTall: number = Number(area.height);
         if (Number.isFinite(measured) && measured > 0) { this.measuredSpan = measured; }
+        if (Number.isFinite(measuredTall) && measuredTall > 0) { this.measuredHeight = measuredTall; }
       } catch (error) { Logger.warn('PLAYER_GESTURE', '测量视频区域失败：' + String(error)); }
     })
       .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
@@ -247,6 +276,19 @@ export struct PlayerGestureLayer {
       .onActionUpdate((event: GestureEvent): void => { this.update(event); })
       .onActionEnd((): void => { void this.end(); })
       .onActionCancel((): void => { void this.end(true); }),
+      // 长按：仅视频区域右半边按住 3 倍速；顶部控制栏区域不触发。
+      LongPressGesture({ repeat: false, duration: 500 })
+        .onAction((event: GestureEvent): void => {
+          if (event.fingerList.length === 0) { return; }
+          const x: number = event.fingerList[0].localX;
+          const y: number = event.fingerList[0].localY;
+          // 顶部控制栏高度约 60vp，留 8vp 余量。
+          if (y >= 0 && y < 68) { return; }
+          if (this.measuredSpan > 0 && x < this.measuredSpan / 2) { return; }
+          this.beginSpeedBoost();
+        })
+        .onActionEnd((): void => { this.endSpeedBoost(); })
+        .onActionCancel((): void => { this.endSpeedBoost(); }),
       TapGesture({ count: 2 }).onAction((): void => { void this.doubleTap(); }),
       // 单击切换控制栏；独占手势组优先识别双击，避免双击暂停被单击逻辑抢先触发。
       TapGesture({ count: 1 }).onAction((): void => {

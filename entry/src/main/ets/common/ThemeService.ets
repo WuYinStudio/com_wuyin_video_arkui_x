@@ -2,6 +2,7 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { AppState, PlayerImmersiveConfig } from './AppState';
 import { Logger } from './Logger';
+import { WallpaperMedia, WallpaperService } from './WallpaperService';
 
 export class ThemePreset {
   id: string = '';
@@ -53,7 +54,7 @@ class ThemeSeed {
  * 借助各页面已有的 @StorageLink('immersiveConfig') 触发重绘，不需要逐页加主题监听。
  */
 export class ThemeService {
-  static readonly DEFAULT_THEME: string = 'aurora-blue';
+  static readonly DEFAULT_THEME: string = 'sand-gold';
   private static readonly STORE_KEY_THEME: string = 'themeId';
   private static readonly STORE_KEY_WALLPAPER: string = 'wallpaperId';
   private static store?: preferences.Preferences;
@@ -63,6 +64,7 @@ export class ThemeService {
   private static cache: ThemePreset[] = [];
 
   private static readonly SEEDS: ThemeSeed[] = [
+    new ThemeSeed('sand-gold', '浅金', '#CFB066'),
     new ThemeSeed('aurora-blue', '极光蓝', '#4B7BFF'),
     new ThemeSeed('mint', '薄荷青', '#22C7B8'),
     new ThemeSeed('twilight', '暮光紫', '#8B5CF6'),
@@ -159,6 +161,16 @@ export class ThemeService {
     return undefined;
   }
 
+  /**
+   * 所有页面背景/图标颜色都依赖 darkTheme 的 StorageLink。
+   * 同步切一次再切回，触发全局页面重绘，但不改变最终深浅色。
+   */
+  private static refreshRenderedPages(): void {
+    const dark: boolean = Boolean(AppStorage.get<boolean>('darkTheme'));
+    AppStorage.setOrCreate<boolean>('darkTheme', !dark);
+    AppStorage.setOrCreate<boolean>('darkTheme', dark);
+  }
+
   static applyTheme(id: string): boolean {
     if (!ThemeService.validTheme(id)) {
       return false;
@@ -166,6 +178,7 @@ export class ThemeService {
     ThemeService.currentId = id;
     AppStorage.setOrCreate<string>('themeId', id);
     ThemeService.signalChange();
+    ThemeService.refreshRenderedPages();
     ThemeService.persistTheme(id);
     Logger.info('THEME_STORE', '应用主题：' + id);
     return true;
@@ -173,11 +186,50 @@ export class ThemeService {
 
   static applyWallpaper(id: string): void {
     const next: string = ThemeService.validWallpaper(id) ? id : '';
+    // 渐变壁纸与本地导入背景互斥：选渐变壁纸时自动收起动态背景，避免两层背景叠在一起。
+    WallpaperService.deactivate();
     ThemeService.wallpaperId = next;
     AppStorage.setOrCreate<string>('wallpaperId', next);
     ThemeService.signalChange();
+    ThemeService.refreshRenderedPages();
     ThemeService.persistWallpaper(next);
     Logger.info('THEME_STORE', next.length > 0 ? '应用自定义背景：' + next : '恢复默认背景');
+  }
+
+  /**
+   * 应用本地导入的背景（图片 / GIF / 循环视频）。
+   * 与 applyWallpaper 互斥：应用本地资源时清空渐变壁纸，保持"背景设置只有一个生效项"。
+   */
+  static applyImportedWallpaper(id: string): boolean {
+    if (!WallpaperService.activate(id)) {
+      return false;
+    }
+    if (ThemeService.wallpaperId !== '') {
+      ThemeService.wallpaperId = '';
+      AppStorage.setOrCreate<string>('wallpaperId', '');
+      ThemeService.persistWallpaper('');
+    }
+    Logger.info('THEME_STORE', '应用本地背景：' + id);
+    return true;
+  }
+
+  /** 清空全部背景设置（渐变壁纸 + 本地导入背景），回到当前主题默认底色。 */
+  static clearBackground(): void {
+    ThemeService.applyWallpaper('');
+    Logger.info('THEME_STORE', '已清空全部背景设置');
+  }
+
+  /** 当前背景名称：本地导入资源优先，其次渐变壁纸，最后跟随主题。 */
+  static backgroundName(): string {
+    const media: WallpaperMedia | undefined = WallpaperService.currentMedia();
+    if (media !== undefined) {
+      return media.name;
+    }
+    const wall: WallpaperPreset | undefined = ThemeService.wallpaper();
+    if (wall !== undefined) {
+      return wall.name;
+    }
+    return '';
   }
 
   static pageBg(dark: boolean): string {

@@ -4,7 +4,6 @@ import { CommunityApi, CommunitySession } from '../common/CommunityApi';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 /**
  * 关注 / 粉丝列表。
@@ -97,7 +96,7 @@ struct FollowListPage {
       router.back();
       return;
     }
-    void replaceRoute({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
   }
 
   @Builder

@@ -1,6 +1,8 @@
-import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
+import deviceInfo from '@ohos.deviceInfo';
+import display from '@ohos.display';
 import fs from '@ohos.file.fs';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -12,6 +14,7 @@ import { ThemeService } from '../common/ThemeService';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, GlassIconButton, GlassSearchBar, LiquidNav, SectionHeader,
   SegmentedGlassTabs } from '../common/UiWidgets';
+import { SideRail } from '../common/SideRail';
 import { ChatNoticeBanner } from '../components/ChatNoticeBanner';
 import { FilmTile } from './Shared';
 import { SearchPage } from './SearchPage';
@@ -127,6 +130,8 @@ export struct HomePage {
   // AppState 的 Preferences 整体归档负责重启持久化，StorageLink 负责页面实时同步。
   @StorageLink('immersiveConfig') @Watch('onImmersiveChanged') private immersiveConfig: PlayerImmersiveConfig = AppState.immersiveConfig;
   @StorageLink('darkTheme') @Watch('onImmersiveChanged') darkTheme: boolean = true;
+  @StorageLink('themeVersion') private themeVersion: number = 0;
+  @StorageLink('wallpaperId') private wallpaperId: string = '';
   // 安全区由窗口服务统一发布为 vp，页面不再单独查询或缓存过期的手势条尺寸。
   @StorageLink('immersiveStatusBarInset') @Watch('onTopInsetChanged') private statusBarInset: number = 24;
   @StorageLink('immersiveTopInset') @Watch('onTopInsetChanged') private topSafeInset: number = 24;
@@ -136,6 +141,7 @@ export struct HomePage {
   // 设置页「界面尺寸 · Dock 栏大小」：变化时重新计算内嵌业务页的底栏避让高度。
   @StorageLink('dockScale') @Watch('onDockScaleChanged') private dockScale: number = 1;
   @State viewportWidth: number = 360;
+  @StorageLink('sideNavCollapsed') private sideNavCollapsed: boolean = false;
   @State viewportHeight: number = 780;
   @State selected: string = '首页';
   @State query: string = '';
@@ -153,9 +159,11 @@ export struct HomePage {
   @State varietyMessage: string = '';
   @State bannerPressed: boolean = false;
   @State varietyPressed: string = '';
+  @State varietyHovered: string = '';
   private readonly homeScroller: Scroller = new Scroller();
   // 推荐 Grid 与外层 Scroll 分别上报实际滚动位置，避免在影片区滚动时遗漏显隐事件。
   private readonly homeGridScroller: Scroller = new Scroller();
+  private readonly heroScroller: Scroller = new Scroller();
   // 已移除顶部导航「找片」标签及其绑定；剩余五项按原有分类顺序显示。
   private labels: string[] = ['首页', '电影', '电视剧', '动漫', '综艺'];
   private shortcuts: string[] = ['我要功能', '我要反馈', '精选壁纸', '全网站', '电影'];
@@ -170,7 +178,7 @@ export struct HomePage {
   private sliding: boolean = false;
   private firstBannerImagePending: boolean = false;
 
-  /** 处理 wuyinvideo:// 深链（Android intent-filter / iOS URL Types 进入）。 */
+  /** 处理 wuyinvideo:// 深链。 */
   private consumeDeepLink(): void {
     try {
       const uri: string = AppStorage.get<string>('deepLinkUri') || '';
@@ -186,7 +194,7 @@ export struct HomePage {
         const cover: string = schemeValue(uri, 'cover');
         if (wzlj.length === 0) {
           Logger.warn('HOME', '深链 play 缺少 wzlj，只能打开播放器空壳：' + uri);
-          this.toast('该分享缺少播放地址（wzlj），请从 App 内分享');
+          this.showToast('该分享缺少播放地址（wzlj），请从 App 内分享');
         }
         const params: Record<string, string> = {
           'vodId': vodId, 'episodeIndex': episode, 'wzlj': wzlj, 'tilie': title, 'yhm': title, 'feng': cover
@@ -226,6 +234,11 @@ export struct HomePage {
     } catch (error) {
       Logger.warn('HOME', '处理深链失败：' + String(error));
     }
+  }
+
+  private showToast(message: string): void {
+    try { this.getUIContext().getPromptAction().showToast({ message: message }); }
+    catch (error) { Logger.warn('HOME', String(error)); }
   }
 
   aboutToAppear(): void {
@@ -323,18 +336,40 @@ export struct HomePage {
     return Number.isFinite(this.bottomSafeInset) ? Math.max(0, this.bottomSafeInset) : 16;
   }
   private contentWidth(): number {
-    return Math.max(0, this.viewportWidth - Math.max(0, this.leftSafeInset) - Math.max(0, this.rightSafeInset));
+    const base: number = Math.max(0, this.viewportWidth - Math.max(0, this.leftSafeInset) - Math.max(0, this.rightSafeInset));
+    return Math.max(0, base - (this.sideNav() ? this.sideRailWidth() : 0));
+  }
+  /** 平板/PC/智慧屏使用左侧导航栏；手机（含手机横屏）保持底部 Dock。 */
+  private sideNav(): boolean {
+    const type: string = String(deviceInfo.deviceType || '');
+    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
+    return !phone && this.viewportWidth >= 600;
+  }
+  private sideRailWidth(): number {
+    if (this.sideNavCollapsed) {
+      if (Ui.isTv(this.viewportWidth)) { return 76; }
+      if (Ui.isDesktop(this.viewportWidth)) { return 72; }
+      return 64;
+    }
+    if (Ui.isTv(this.viewportWidth)) { return 144; }
+    if (Ui.isDesktop(this.viewportWidth)) { return 136; }
+    return 120;
   }
   /** 去掉左右留白、并在宽屏上居中限宽后的可用内容宽度。 */
   private contentW(): number {
     const raw: number = this.contentWidth();
-    const gutter: number = Ui.gutter(raw);
-    return Math.max(260, Math.min(raw - gutter * 2, 1180));
+    const gutter: number = Ui.gutter(this.viewportWidth);
+    // 侧栏模式下内容占满侧栏右侧可用宽度，避免左侧出现大块空白。
+    if (this.sideNav()) {
+      return Math.max(260, raw - gutter * 2);
+    }
+    return Math.max(260, Math.min(raw - gutter * 2, Ui.contentMax(this.viewportWidth)));
   }
-  private gutter(): number { return Ui.gutter(this.contentWidth()); }
-  private tablet(): boolean { return Ui.isTablet(this.contentWidth()); }
+  private gutter(): number { return Ui.gutter(this.viewportWidth); }
+  private tablet(): boolean { return Ui.isTablet(this.viewportWidth); }
   private landscape(): boolean { return this.viewportHeight > 0 && this.viewportWidth > this.viewportHeight * 1.15; }
   private navHeight(): number {
+    if (this.sideNav()) { return 0; }
     return Ui.navBarHeight(this.contentWidth(), this.viewportHeight, this.dockScale);
   }
   private navStripHeight(): number {
@@ -383,6 +418,22 @@ export struct HomePage {
     if (this.varietyFadeTimer !== -1) { clearTimeout(this.varietyFadeTimer); this.varietyFadeTimer = -1; }
     if (this.imageWaitTimer !== -1) { clearTimeout(this.imageWaitTimer); this.imageWaitTimer = -1; }
   }
+  /** 大屏多卡轮播：按索引滚动到下一张，末尾自动回到第一张。 */
+  private scrollWideHero(): void {
+    if (this.heroColumns() <= 1 || this.bannerItems.length === 0) { return; }
+    try {
+      const maxIndex: number = Math.max(0, this.bannerItems.length - this.heroColumns());
+      const index: number = Math.max(0, Math.min(this.currentBannerIndex, maxIndex));
+      const step: number = this.heroCardWidth() + 12;
+      this.heroScroller.scrollTo({
+        xOffset: step * index,
+        yOffset: 0,
+        animation: { duration: 450, curve: Curve.EaseInOut }
+      });
+    } catch (error) {
+      Logger.warn('HomeBanner', '大屏轮播滚动失败：' + String(error));
+    }
+  }
   // 用单次五秒定时器控制索引；手指按住时停表，松开后重新计满五秒。
   private startBannerTimer(): void {
     this.stopBannerTimer();
@@ -393,6 +444,7 @@ export struct HomePage {
       try {
         const lastIndex: number = this.bannerItems.length - 1;
         this.currentBannerIndex = this.currentBannerIndex >= lastIndex ? 0 : this.currentBannerIndex + 1;
+        this.scrollWideHero();
       } catch (_) { Logger.error('HomeModule', '轮播索引切换失败'); }
       this.startBannerTimer();
     }, 5000);
@@ -696,6 +748,23 @@ export struct HomePage {
     if (this.tablet()) { return Math.round(Math.min(420, Math.max(286, availableWidth * 0.44))); }
     return Math.round(Math.min(302, Math.max(236, availableWidth * 0.76)));
   }
+  /** 大屏轮播横向同排展示数量：双折叠/三折叠/平板 2，PC/智慧屏 3。 */
+  private heroColumns(): number {
+    if (this.viewportWidth < 600) { return 1; }
+    if (Ui.isDesktop(this.viewportWidth) || Ui.isTv(this.viewportWidth)) { return 3; }
+    const type: string = String(deviceInfo.deviceType || '');
+    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
+    if (!phone) { return 2; }
+    // 手机横屏仍然只显示单张；折叠屏展开后显示 2 张。
+    let foldable: boolean = false;
+    try { foldable = display.isFoldable(); } catch (_) { foldable = false; }
+    return foldable ? 2 : 1;
+  }
+  private heroMultiHeight(): number { return this.tablet() ? 250 : 230; }
+  private heroCardWidth(): number {
+    const columns: number = Math.max(1, this.heroColumns());
+    return Math.max(220, (this.contentW() - 12 * (columns - 1)) / columns);
+  }
 
   // ArkUI 声明式 Builder 不支持直接嵌套 try 语句。
   // 渲染所需尺寸、文案在普通方法内用 try-catch 准备；图片和交互回调独立捕获异常。
@@ -776,10 +845,12 @@ export struct HomePage {
         .width('36vp').height('36vp').borderRadius('12vp')
         .linearGradient({ angle: 135, colors: [[Ui.brandFrom(), 0], [Ui.brandMid(), 0.55], [Ui.brandTo(), 1]] })
         .shadow({ radius: 14, color: Ui.accentGlow(this.darkTheme), offsetY: 5 })
-      Text('无')
-        .fontSize(Ui.fs('17vp', this.fontScale))
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
+      // 项目图标替代原来的「无」字
+      Image($r('app.media.icon'))
+        .width('26vp')
+        .height('26vp')
+        .borderRadius('8vp')
+        .objectFit(ImageFit.Contain)
     }
       .width('36vp').height('36vp')
   }
@@ -803,15 +874,20 @@ export struct HomePage {
         .alignItems(HorizontalAlign.Start)
       GlassIconButton({
         iconSize: 38,
-        symbol: $r('sys.symbol.camera'),
-        accessibilityLabel: '识图找片',
-        onTap: (): void => { this.toast('相机识片服务尚未配置'); }
+        // 原生扫一扫图标
+        symbol: $r('sys.symbol.barcode_viewfinder'),
+        accessibilityLabel: '扫一扫',
+        onTap: (): void => { void router.pushUrl({ url: 'pages/ScanPage' }); }
       })
       GlassIconButton({
         iconSize: 38,
-        symbol: $r('sys.symbol.timer'),
+        // 原生观看历史图标
+        symbol: $r('sys.symbol.clock'),
         accessibilityLabel: '观看历史',
-        onTap: (): void => { AppState.go('history'); }
+        onTap: (): void => {
+          AppStorage.setOrCreate<number>('manageInitialTab', 0);
+          AppState.go('manage');
+        }
       })
     }
       .width('100%')
@@ -1016,7 +1092,47 @@ export struct HomePage {
 
   @Builder
   private hero() {
-    Stack({ alignContent: Alignment.Bottom }) {
+    if (this.heroColumns() > 1 && this.bannerItems.length > 0) {
+      Scroll(this.heroScroller) {
+        Row({ space: '12vp' }) {
+          ForEach(this.bannerItems, (item: Banner) => {
+            Column() {
+              this.bannerSlide(item)
+            }
+              .width(this.heroCardWidth() + 'vp')
+              .height(this.heroMultiHeight() + 'vp')
+              .borderRadius(this.tablet() ? '24vp' : '20vp')
+              .clip(true)
+              .backgroundColor(Ui.card(this.darkTheme))
+          }, (item: Banner) => 'wide-hero-' + item.itemIndex)
+        }
+      }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
+        .width('100%')
+        .height(this.heroMultiHeight() + 'vp')
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.sliding = true;
+            this.bannerPressed = true;
+            this.stopBannerTimer();
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.sliding = false;
+            this.bannerPressed = false;
+            this.startBannerTimer();
+          }
+        })
+        .onScrollStop(() => {
+          try {
+            const offset: number = this.heroScroller.currentOffset().xOffset;
+            const step: number = Math.max(1, this.heroCardWidth() + 12);
+            const maxIndex: number = Math.max(0, this.bannerItems.length - this.heroColumns());
+            this.currentBannerIndex = Math.max(0, Math.min(maxIndex, Math.round(offset / step)));
+          } catch (_) { Logger.warn('HomeBanner', '同步大屏轮播索引失败'); }
+        })
+    } else {
+      Stack({ alignContent: Alignment.Bottom }) {
       if (this.bannerItems.length > 0) {
         Swiper() {
           ForEach(this.bannerItems, (item: Banner) => {
@@ -1086,12 +1202,13 @@ export struct HomePage {
       .borderRadius(this.tablet() ? '30vp' : '26vp')
       .clip(true)
       .backgroundColor(Ui.card(this.darkTheme))
+    }
   }
 
   @Builder
   private quickActions() {
     // 原五个快捷入口已移除，改为「观影记录」横条（本地播放历史）。
-    HistoryStrip()
+    HistoryStrip({ hideWhenEmpty: true })
   }
 
   @Builder
@@ -1165,9 +1282,21 @@ export struct HomePage {
         .width('100%')
     }
       .width(this.varietyCardWidth())
-      .scale({ x: this.varietyPressed === item.mid ? 0.96 : 1, y: this.varietyPressed === item.mid ? 0.96 : 1 })
-      .animation({ duration: UiMotion.FAST, curve: Curve.FastOutSlowIn })
+      .scale({
+        x: this.varietyPressed === item.mid ? 0.96 : (this.varietyHovered === item.mid ? 1.03 : 1),
+        y: this.varietyPressed === item.mid ? 0.96 : (this.varietyHovered === item.mid ? 1.03 : 1)
+      })
+      .translate({ y: this.varietyHovered === item.mid ? -4 : 0 })
+      .shadow({
+        radius: this.varietyHovered === item.mid ? 24 : 0,
+        color: this.varietyHovered === item.mid ? Ui.accentGlow(this.darkTheme) : '#00000000',
+        offsetY: 8
+      })
+      .animation({ duration: UiMotion.BASE, curve: Curve.FastOutSlowIn })
       .accessibilityText(item.title)
+      .onHover((isHover: boolean) => {
+        this.varietyHovered = isHover ? item.mid : (this.varietyHovered === item.mid ? '' : this.varietyHovered);
+      })
       .onTouch((event: TouchEvent) => { this.varietyPressed = event.type === TouchType.Down ? item.mid : ''; })
       .onClick(() => { this.openSearchWith(item.title); })
       .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.96, y: 0.96 })))
@@ -1194,6 +1323,7 @@ export struct HomePage {
         }
           .scrollable(ScrollDirection.Horizontal)
           .scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.Spring)
           .width('100%')
           .height(this.varietyPosterHeight() + 56)
       } else if (!this.varietyLoading) {
@@ -1290,6 +1420,7 @@ export struct HomePage {
       }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
         .onScrollStart(() => { this.beginHomeScroll('content', this.homeScroller); })
         .onDidScroll((_xOffset: number, _yOffset: number, scrollState: ScrollState) => {
           this.reportHomeScroll('content', this.homeScroller, scrollState);
@@ -1349,29 +1480,58 @@ export struct HomePage {
           angle: 180,
           colors: [[Ui.pageBg(this.darkTheme), 0], [Ui.pageBgAlt(this.darkTheme), 1]]
         })
-      AuroraBackdrop({ intensity: this.darkTheme ? 1 : 0.9 })
-      if (this.page === 'home') {
-        this.home()
-      } else {
-        // 搜索、分类、管理与设置不预留悬浮栏空间；其他业务页面保持原有避让布局。
-        Column() {
-          this.businessPage()
+      // 首页外壳承载背景层：只有停留在「首页」Tab 时才渲染动态背景，
+      // 切到其它 Tab 由该 Tab 自己的背景层接管，避免多份 Video 同时占解码器。
+      AuroraBackdrop({ intensity: this.darkTheme ? 1 : 0.9, hostVisible: this.page === 'home' })
+      if (this.sideNav()) {
+        Row() {
+          SideRail({
+            viewportWidth: this.viewportWidth,
+            safeTop: this.safeTop(),
+            safeBottom: this.safeBottom()
+          })
+          Column() {
+            if (this.page === 'home') {
+              this.home()
+            } else {
+              Column() {
+                this.businessPage()
+              }
+                .width('100%')
+                .height('100%')
+                .padding({ bottom: this.fullScreenBusinessPage() ? '0vp' : this.navigationClearance() + 'vp' })
+            }
+          }
+            .layoutWeight(1)
+            .height('100%')
         }
           .width('100%')
           .height('100%')
-          .padding({ bottom: this.fullScreenBusinessPage() ? '0vp' : this.navigationClearance() + 'vp' })
+      } else {
+        if (this.page === 'home') {
+          this.home()
+        } else {
+          // 搜索、分类、管理与设置不预留悬浮栏空间；其他业务页面保持原有避让布局。
+          Column() {
+            this.businessPage()
+          }
+            .width('100%')
+            .height('100%')
+            .padding({ bottom: this.fullScreenBusinessPage() ? '0vp' : this.navigationClearance() + 'vp' })
+        }
+        // 底栏 + 底栏上方的渐进模糊：是整屏 Stack 的最后一个孩子，所以模糊只作用于它上方的正文，
+        // 且模糊带的高度固定，超过栏顶的正文完全不受影响。
+        LiquidNav({
+          viewportWidth: this.contentWidth(),
+          viewportHeight: this.viewportHeight,
+          safeBottom: this.safeBottom()
+        })
       }
-      // 底栏 + 底栏上方的渐进模糊：是整屏 Stack 的最后一个孩子，所以模糊只作用于它上方的正文，
-      // 且模糊带的高度固定，超过栏顶的正文完全不受影响。
-      LiquidNav({
-        viewportWidth: this.contentWidth(),
-        viewportHeight: this.viewportHeight,
-        safeBottom: this.safeBottom()
-      })
       // 聊天室实时消息提醒：顶部弹窗跟随底栏同层叠加，不拦截页面其它区域的点击。
       ChatNoticeBanner()
     }
       .width('100%').height('100%')
+      .id('home-theme-' + this.themeVersion + '-' + this.wallpaperId)
       .backgroundColor(Ui.pageBg(this.darkTheme))
     // 首页扩展到顶部后仅用 safeTop 做一次内边距；其他业务页保持原有安全区策略。
       .expandSafeArea(this.page === 'home' || this.page === 'category' ?

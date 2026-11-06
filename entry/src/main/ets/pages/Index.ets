@@ -10,8 +10,9 @@ ReservedCode2: ''
 */
 // 内容由 AI 生成，请仔细甄别（AI）
 import { common } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+import { promptAction, router } from '@kit.ArkUI';
 import { AgreementService } from '../common/AgreementService';
+import { AppState } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { ShareService, SharedPlayerRouteParams } from '../common/ShareService';
@@ -19,6 +20,11 @@ import { Ui } from '../common/Ui';
 import { AuroraBackdrop } from '../common/UiWidgets';
 import { HomePage } from './HomePage';
 import { UserAgreementPage } from './UserAgreementPage';
+
+// 连按两次返回键退出应用的判定窗口（毫秒）。
+const DOUBLE_BACK_EXIT_MS: number = 2000;
+// 所有带底部导航栏的标签页（与 NavTabs.ALL 对齐）：在这些页面上按返回才走「先显示底栏 / 再连按退出」。
+const TAB_PAGE_KEYS: string[] = ['home', 'message', 'forum', 'live', 'category', 'manage', 'settings', 'mine'];
 
 // 先完成协议状态恢复，再挂载首页，避免已同意用户启动时短暂看到协议页面。
 @Entry
@@ -28,9 +34,16 @@ struct Index {
   @StorageLink('agreementAccepted') @Watch('onAgreementChanged') private agreementAccepted: boolean = false;
   @StorageLink('playerHandoffVersion') @Watch('onPlayerHandoffChanged') private playerHandoffVersion: number = 0;
   @StorageLink('darkTheme') private darkTheme: boolean = true;
+  @StorageLink('page') @Watch('onPageChanged') private pageKey: string = 'home';
   @State private agreementReady: boolean = false;
   private handoffRouting: boolean = false;
   private handoffQueued: boolean = false;
+  /** 上一次按返回键的时间：用于「连按两次返回才退出应用」判定。 */
+  private lastBackAt: number = 0;
+  /** 内部页面栈（底栏标签页只保留一层）：返回键据此「返回上一级页面」。 */
+  private pageHistory: string[] = ['home'];
+  /** 返回导航自身触发的切页不写入页面栈，避免来回弹。 */
+  private backNavigating: boolean = false;
 
   aboutToAppear(): void {
     try {
@@ -135,15 +148,134 @@ struct Index {
     }
   }
 
+  /**
+   * 记录内部页面栈：
+   * - 底栏标签页之间是平级切换，栈只保留当前标签（返回时回首页）；
+   * - 搜索、个人主页等子页面按层压栈，返回键逐级回退。
+   */
+  private onPageChanged(): void {
+    try {
+      const current: string = this.pageKey;
+      if (this.backNavigating) {
+        // 这次切页是返回键触发的，不再入栈（否则会来回弹）。
+        this.backNavigating = false;
+        return;
+      }
+      if (TAB_PAGE_KEYS.indexOf(current) >= 0) {
+        this.pageHistory = [current];
+        return;
+      }
+      if (this.pageHistory.length === 0) { this.pageHistory = ['home']; }
+      if (this.pageHistory[this.pageHistory.length - 1] !== current) {
+        this.pageHistory.push(current);
+        if (this.pageHistory.length > 10) { this.pageHistory.shift(); }
+      }
+    } catch (error) {
+      Logger.warn('NAV_BACK', '记录页面栈失败：' + String(error));
+    }
+  }
+
+  /** 返回上一级内部页面；没有上一级返回 false，交给后续规则处理。 */
+  private backToPreviousPage(): boolean {
+    try {
+      const stack: string[] = this.pageHistory;
+      if (stack.length > 0 && stack[stack.length - 1] === this.pageKey) { stack.pop(); }
+      while (stack.length > 0) {
+        const target: string = stack[stack.length - 1];
+        if (target === this.pageKey) { stack.pop(); continue; }
+        this.backNavigating = true;
+        AppState.go(target);
+        setTimeout(() => { this.backNavigating = false; }, 200);
+        Logger.info('NAV_BACK', '返回上一级页面：' + this.pageKey + ' → ' + target);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      Logger.warn('NAV_BACK', '返回上一级页面失败：' + String(error));
+      return false;
+    }
+  }
+
+  /** 非首页时按返回：先回到首页（再按一次才进入退出判定）。 */
+  private consumeBackForHome(): boolean {
+    try {
+      if (this.pageKey === 'home') { return false; }
+      const from: string = this.pageKey;
+      this.backNavigating = true;
+      AppState.go('home');
+      setTimeout(() => { this.backNavigating = false; }, 200);
+      Logger.info('NAV_BACK', '非首页按返回，回到首页：' + from);
+      return true;
+    } catch (error) {
+      this.backNavigating = false;
+      Logger.warn('NAV_BACK', '回到首页失败：' + String(error));
+      return false;
+    }
+  }
+
   onBackPress(): boolean {
     try {
       if (!this.agreementReady || this.needsAgreement()) {
         return true;
       }
-      return this.consumeBackForNavigationBar();
+      // 1) 底栏被滚动藏起来时，第一次返回只负责把底栏显示回来。
+      if (this.consumeBackForNavigationBar()) {
+        return true;
+      }
+      // 2) 有上一级内部页面：逐级返回，不退出应用。
+      if (this.backToPreviousPage()) {
+        return true;
+      }
+      // 3) 不在首页：先回首页。
+      if (this.consumeBackForHome()) {
+        return true;
+      }
+      // 4) 已在首页：连按两次返回才退出应用，第一次只弹提示。
+      return this.consumeBackForExit();
     } catch (error) {
       Logger.error('UserAgreement', '拦截协议页面返回失败：' + String(error));
       return true;
+    }
+  }
+
+  /**
+   * 首页返回：第一次只提示「再按一次退出」，2 秒内再按一次才真正退出应用。
+   */
+  private consumeBackForExit(): boolean {
+    try {
+      const page: string = this.pageKey;
+      if (page !== 'home') {
+        return false;
+      }
+      const now: number = Date.now();
+      if (this.lastBackAt > 0 && now - this.lastBackAt <= DOUBLE_BACK_EXIT_MS) {
+        this.lastBackAt = 0;
+        Logger.info('NAV_BACK', '2 秒内再次按返回，退出应用');
+        try {
+          const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+          void context.terminateSelf();
+        } catch (error) {
+          Logger.warn('NAV_BACK', '主动退出应用失败，交给系统默认返回：' + String(error));
+          return false;
+        }
+        return true;
+      }
+      this.lastBackAt = now;
+      this.showExitHint();
+      Logger.info('NAV_BACK', '第一次按返回：提示再按一次退出');
+      return true;
+    } catch (error) {
+      Logger.warn('NAV_BACK', '处理退出返回键失败：' + String(error));
+      return false;
+    }
+  }
+
+  /** 第一次返回时的吐司提示。 */
+  private showExitHint(): void {
+    try {
+      promptAction.showToast({ message: '再按一次返回退出无音影视', duration: 1600 });
+    } catch (error) {
+      Logger.warn('NAV_BACK', '显示退出提示失败：' + String(error));
     }
   }
 
@@ -153,9 +285,8 @@ struct Index {
    */
   private consumeBackForNavigationBar(): boolean {
     try {
-      const page: string = AppStorage.get<string>('page') ?? 'home';
-      const tabPages: string[] = ['home', 'category', 'manage', 'settings', 'mine'];
-      if (tabPages.indexOf(page) < 0) {
+      const page: string = this.pageKey;
+      if (TAB_PAGE_KEYS.indexOf(page) < 0) {
         // 不在带底栏的标签页上，保持原有返回行为。
         return false;
       }

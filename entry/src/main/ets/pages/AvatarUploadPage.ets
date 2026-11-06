@@ -3,7 +3,6 @@ import { webview } from '@kit.ArkWeb';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { GhostButton } from '../common/UiWidgets';
-import { replaceRoute } from '../common/compat/RouterCompat';
 
 class AvatarRouteParams {
   url: string = '';
@@ -48,7 +47,7 @@ struct AvatarUploadPage {
       router.back();
       return;
     }
-    void replaceRoute({ url: 'pages/Index' });
+    void router.pushUrl({ url: 'pages/Index' });
   }
 
   build() {

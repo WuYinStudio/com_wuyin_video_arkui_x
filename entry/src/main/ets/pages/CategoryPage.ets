@@ -1,12 +1,15 @@
 import { Theme } from '@kit.ArkUI';
+import deviceInfo from '@ohos.deviceInfo';
+import display from '@ohos.display';
 import { http } from '@kit.NetworkKit';
-import { AppState, PlayerImmersiveConfig } from '../common/AppState';
+import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
 import { CategoryBatch, CategoryFilters, CategoryService, CategoryVideo } from '../common/CategoryService';
 import { Ui, UiMotion } from '../common/Ui';
 import { AuroraBackdrop, EmptyState, GhostButton, GlassChip } from '../common/UiWidgets';
 import { TapUI } from './TapUI';
+import { FilmTile } from './Shared';
 import { SymbolIcons } from '../common/SymbolIcons';
 
 enum FilterLayer {
@@ -59,7 +62,7 @@ export struct CategoryPage {
   private lastFlowOffset: number = 0;
   private filterScrollTravel: number = 0;
   private filterAnimationUntil: number = 0;
-  private readonly flowMaxWide: number = 1200;
+  private readonly flowMaxWide: number = 2400;
   private readonly skeletonKeys: number[] = [0, 1, 2, 3, 4, 5, 6, 7];
   private readonly flowScroller: Scroller = new Scroller();
   private readonly filterScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller(), new Scroller()];
@@ -154,18 +157,71 @@ export struct CategoryPage {
     return this.viewportSize >= 600;
   }
 
+  @StorageLink('sideNavCollapsed') private sideNavCollapsed: boolean = false;
   private isDesktop(): boolean {
     return this.viewportSize >= 1200;
   }
 
+  /** 大屏分类页：筛选面板贴左侧导航栏，列表在右。 */
+  private sideFilter(): boolean {
+    const type: string = String(deviceInfo.deviceType || '');
+    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
+    return !phone && this.viewportSize >= 760;
+  }
+  private railWidth(): number {
+    if (this.sideNavCollapsed) {
+      if (this.viewportSize >= 1920) { return 76; }
+      if (this.viewportSize >= 1280) { return 72; }
+      return 64;
+    }
+    if (this.viewportSize >= 1920) { return 144; }
+    if (this.viewportSize >= 1280) { return 136; }
+    return 120;
+  }
+  private filterSideWidth(): number {
+    // 「形式」四个胶囊完整横排的真实宽度 + 左右各 1vp 内边距。
+    let width: number = 0;
+    for (const label of this.formLabels) {
+      width += this.formChipWidth(label);
+    }
+    width += 6 * Math.max(0, this.formLabels.length - 1);
+    return Math.ceil(width + 2);
+  }
+
+  private formChipWidth(label: string): number {
+    try {
+      const textPx: number = this.getUIContext().getMeasureUtils().measureText({
+        textContent: label,
+        fontSize: Ui.fs('12vp', this.fontScale)
+      });
+      return this.getUIContext().px2vp(textPx) + 22;
+    } catch (_) {
+      return label.length * 12 * this.fontScale + 22;
+    }
+  }
+
   private listWide(): number {
-    // 仅列表限制最大宽度；列数和卡片宽度使用相同的有效列表宽度，避免大屏卡片溢出。
-    return Math.min(this.viewportSize, this.flowMaxWide);
+    // 仅列表限制最大宽度；侧栏模式下扣除侧边导航与筛选面板。
+    const side: number = this.sideFilter() ? this.railWidth() + this.filterSideWidth() : 0;
+    return Math.min(Math.max(0, this.viewportSize - side), this.flowMaxWide);
   }
 
   private columnCount(): number {
-    // 与管理页个人收藏使用相同的自适应列数规则。
-    return Math.max(2, Math.min(6, Math.floor(this.listWide() / 150)));
+    const width: number = this.listWide();
+    if (width < 600) { return 1; }
+    const type: string = String(deviceInfo.deviceType || '');
+    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
+    if (phone) {
+      let foldable: boolean = false;
+      try { foldable = display.isFoldable(); } catch (_) { foldable = false; }
+      if (!foldable) { return 1; }
+      // 双折叠/三折叠：至少 2 列，宽屏最多 3 列。
+      return width >= 1100 ? 3 : 2;
+    }
+    // 平板、PC、智慧屏按可用宽度递增，最多 3 列。
+    if (width >= 1100) { return 3; }
+    if (width >= 700) { return 2; }
+    return 1;
   }
 
   private columnTemplate(): string {
@@ -173,7 +229,7 @@ export struct CategoryPage {
   }
 
   private columnGap(): number {
-    return 16;
+    return 10;
   }
 
   private rowGap(): number {
@@ -181,8 +237,9 @@ export struct CategoryPage {
   }
 
   private cardWide(): number {
-    const availableWide: number = (this.listWide() - 48 - (this.columnCount() - 1) * this.columnGap()) / this.columnCount();
-    return Math.min(520, Math.max(1, availableWide));
+    const availableWide: number = (this.listWide() - 6 - (this.columnCount() - 1) * this.columnGap()) / this.columnCount();
+    // 大屏多出的宽度全部分配给卡片，不再用 520vp 上限截断。
+    return Math.max(1, availableWide);
   }
 
   private posterWide(): number {
@@ -651,7 +708,7 @@ export struct CategoryPage {
   }
 
   private beginFilterScroll(): void {
-    if (!this.pageAlive) {
+    if (!this.pageAlive || this.sideFilter()) {
       return;
     }
     this.filterScrollTravel = 0;
@@ -681,6 +738,11 @@ export struct CategoryPage {
       }
       const scrollDelta: number = currentOffset - this.lastFlowOffset;
       this.lastFlowOffset = currentOffset;
+      // 侧面筛选面板固定显示，滚动列表不再触发展开/收起。
+      if (this.sideFilter()) {
+        this.filterScrollTravel = 0;
+        return;
+      }
       // 布局收缩及展开产生的偏移不作为手势方向，避免筛选区域反复闪动。
       if (scrollState === ScrollState.Idle || Date.now() < this.filterAnimationUntil) {
         this.filterScrollTravel = 0;
@@ -832,6 +894,84 @@ export struct CategoryPage {
   }
 
   @Builder
+  private filterBlock(layer: FilterLayer) {
+    Column({ space: '6vp' }) {
+      Text(this.layerTitle(layer))
+        .fontSize(Ui.fs('11.5vp', this.fontScale))
+        .fontColor(this.normalInk())
+        .maxLines(1)
+        .width('100%')
+        .textAlign(TextAlign.Start)
+        .padding({ left: '2vp' })
+      if (layer === FilterLayer.FORM) {
+        // 形式行固定单行：电视剧、电影、动漫、综艺完整横排。
+        Row({ space: '6vp' }) {
+          ForEach(this.labelsFor(layer), (label: string, index: number) => {
+            this.filterChip(layer, label, index)
+          }, (label: string, index: number) => 'side-form-' + index + '-' + label)
+        }
+          .width('100%')
+          .justifyContent(FlexAlign.Center)
+      } else {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
+          ForEach(this.labelsFor(layer), (label: string, index: number) => {
+            Row() {
+              this.filterChip(layer, label, index)
+            }
+              .margin({ right: '6vp', bottom: '6vp' })
+          }, (label: string, index: number) => 'side-' + String(layer) + '-' + index + '-' + label)
+        }
+          .width('100%')
+      }
+    }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  private filterPanelSide() {
+    Column({ space: '8vp' }) {
+      Row() {
+        Text('筛选')
+          .fontSize(Ui.fs('14vp', this.fontScale))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.selectedInk())
+      }
+        .width('100%')
+        .height('28vp')
+        .padding({ left: '2vp' })
+        .justifyContent(FlexAlign.Start)
+        .alignItems(VerticalAlign.Center)
+      Scroll() {
+        Column({ space: '14vp' }) {
+          this.filterBlock(FilterLayer.FORM)
+          this.filterBlock(FilterLayer.TYPE)
+          this.filterBlock(FilterLayer.AREA)
+          this.filterBlock(FilterLayer.YEAR)
+          this.filterBlock(FilterLayer.ORDER)
+        }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+      }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
+        .width('100%')
+    }
+      .width('100%')
+      .height('100%')
+      .padding('1vp')
+      .borderRadius('0vp')
+      .linearGradient({
+        angle: 135,
+        colors: [[Ui.cardTop(this.darkTheme), 0], [Ui.cardBottom(this.darkTheme), 1]]
+      })
+      .backdropBlur(this.glassRadius())
+      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .clip(true)
+  }
+
+  @Builder
   private skeletonBlock(blockWide: string, blockTall: string, cornerRadius: string) {
     Stack({ alignContent: Alignment.Center }) {
       Row()
@@ -874,26 +1014,29 @@ export struct CategoryPage {
 
   @Builder
   private filmCardSkeleton() {
-    Column({ space: 9 }) {
-      Stack() {
-        this.skeletonBlock('100%', '100%', '16vp')
+    Stack({ alignContent: Alignment.BottomStart }) {
+      // 整卡扫光：与分类列表 FilmTile 的横向满卡模板保持一致。
+      this.skeletonBlock('100%', '100%', this.isTablet() ? '26vp' : '22vp')
+      Column({ space: '7vp' }) {
+        Row({ space: '6vp' }) {
+          this.skeletonBlock('54vp', '22vp', '11vp')
+          Blank()
+          this.skeletonBlock('42vp', '22vp', '11vp')
+        }
+          .width('100%')
+        Blank()
+        this.skeletonBlock('68%', '18vp', '6vp')
+        this.skeletonBlock('92%', '12vp', '6vp')
+        this.skeletonBlock('42%', '12vp', '6vp')
       }
-        .width(this.posterWide() + 'vp')
-        .height(this.posterTall() + 'vp')
-        .aspectRatio(2 / 3)
-        .borderRadius('16vp')
-        .clip(true)
-      this.cardTextSkeleton()
+        .width('100%')
+        .height('100%')
+        .padding({ left: '12vp', right: '12vp', top: '12vp', bottom: '12vp' })
     }
-      .width(this.cardWide() + 'vp')
-      .constraintSize({ maxWidth: '520vp', minHeight: '260vp' })
-      .padding(this.cardInset())
-      .borderRadius(Ui.R_MD)
-      .linearGradient({
-        angle: 135,
-        colors: [[Ui.cardTop(this.darkTheme), 0], [Ui.cardBottom(this.darkTheme), 1]]
-      })
-      .border({ width: 1, color: Ui.cardBorder(this.darkTheme) })
+      .width('100%')
+      .height(this.isTablet() ? 300 : 208)
+      .borderRadius(this.isTablet() ? '26vp' : '22vp')
+      .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
       .shadow({ radius: 14, color: Ui.shadowSoft(this.darkTheme), offsetY: 8 })
       .clip(true)
       .accessibilityLevel('no')
@@ -954,6 +1097,27 @@ export struct CategoryPage {
       .accessibilityText(video.title + (showSkeleton ? '，封面加载中' : '，封面占位，蓝色播放图标'))
       .accessibilityLevel('no')
       .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+  }
+
+  /** 分类接口字段映射到「为你精选」卡片模型。 */
+  private categoryFilm(video: CategoryVideo): Film {
+    const formLabel: string = this.formLabels[this.indexFor(FilterLayer.FORM)] || '电影';
+    const areaLabel: string = this.labelsFor(FilterLayer.AREA)[this.indexFor(FilterLayer.AREA)] || '全部';
+    const typeLabel: string = this.labelsFor(FilterLayer.TYPE)[this.indexFor(FilterLayer.TYPE)] || '全部';
+    const rawType: string = String(video.type || '').trim();
+    const rawArea: string = String(video.area || '').trim();
+    const typeUnknown: boolean = rawType.length === 0 || rawType === '类型未知' || rawType === '未知';
+    const areaUnknown: boolean = rawArea.length === 0 || rawArea === '地区未知' || rawArea === '未知';
+    // 类型跟随「类型」筛选；类型为全部时才回退到接口类型或当前形式。
+    const displayType: string = typeLabel !== '全部' ? typeLabel :
+      (typeUnknown ? formLabel : rawType);
+    const film: Film = new Film(Number(video.id) || 0, video.title || '未命名影片',
+      displayType, video.intro || '');
+    film.region = areaUnknown ? (areaLabel === '全部' ? '中国' : areaLabel) : rawArea;
+    film.year = video.date && video.date.length >= 4 ? video.date.substring(0, 4) : '2025';
+    film.score = video.rating !== null && Number.isFinite(video.rating) ? video.rating : 8.5;
+    film.episodes = 12;
+    return film;
   }
 
   @Builder
@@ -1129,6 +1293,90 @@ export struct CategoryPage {
       .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
   }
 
+  @Builder
+  private resultFlow() {
+    Refresh({ refreshing: $$this.refreshing }) {
+      Stack() {
+        if (this.loadingFirst) {
+          WaterFlow() {
+            ForEach(this.skeletonKeys, (key: number) => {
+              FlowItem() {
+                this.filmCardSkeleton()
+              }
+                .width('100%')
+            }, (key: number) => 'category-skeleton-' + key)
+          }
+            .columnsTemplate(this.columnTemplate())
+            .columnsGap(this.columnGap() + 'vp')
+            .rowsGap(this.rowGap() + 'vp')
+            .width('100%')
+            .height('100%')
+            .padding('3vp')
+            .scrollBar(BarState.Off)
+            .accessibilityText('正在加载分类资源')
+            .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+        } else if (this.fllba.length === 0) {
+          this.emptyState()
+        } else {
+          Column() {
+            if (this.firstMessage) {
+              Row() {
+                Row({ space: 10 }) {
+                  Text(this.firstMessage).fontSize(Ui.fs('12.5vp', this.fontScale)).fontColor(this.normalInk()).layoutWeight(1).maxLines(2)
+                  this.retryButton()
+                }
+                  .layoutWeight(1)
+                  .padding({ left: '14vp', right: '14vp', top: '8vp', bottom: '8vp' })
+                  .borderRadius(Ui.R_LG)
+                  .backgroundColor(this.panelTone())
+                  .border({ width: 1, color: this.panelRimTone() })
+                  .shadow({ radius: this.panelGlowRadius(), color: this.panelGlowTone(), offsetY: 4 })
+              }
+                .width('100%')
+                .padding({ left: '16vp', right: '16vp', top: '8vp', bottom: '8vp' })
+                .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+            }
+            WaterFlow({ scroller: this.flowScroller, footer: this.flowFooter }) {
+              ForEach(this.fllba, (video: CategoryVideo) => {
+                FlowItem() {
+                  FilmTile({
+                    film: this.categoryFilm(video),
+                    tablet: this.isTablet(),
+                    cover: video.img,
+                    searchMode: true
+                  })
+                }
+                  .width('100%')
+              }, (video: CategoryVideo) => video.key)
+            }
+              .columnsTemplate(this.columnTemplate())
+              .columnsGap(this.columnGap() + 'vp')
+              .rowsGap(this.rowGap() + 'vp')
+              .width('100%')
+              .layoutWeight(1)
+              .constraintSize({ minHeight: '0vp' })
+              .padding('3vp')
+              .scrollBar(BarState.Off)
+              .onReachEnd(() => { this.loadNextPage(); })
+              .onScrollStart(() => { this.beginFilterScroll(); })
+              .onDidScroll((_scrollOffset: number, scrollState: ScrollState) => { this.updateHeaderProgress(scrollState); })
+              .onScrollStop(() => { this.updateHeaderProgress(); })
+          }
+            .width('100%')
+            .height('100%')
+            .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+        }
+      }.width('100%').height('100%')
+    }
+      .width(this.sideFilter() ? '100%' : this.listWide() + 'vp')
+      .layoutWeight(1)
+      .constraintSize({ minHeight: '0vp', maxWidth: this.sideFilter() ? '100%' : this.flowMaxWide + 'vp' })
+      .alignSelf(ItemAlign.Center)
+      .onRefreshing(() => { this.refreshFirstPage(); })
+      .accessibilityText('分类资源列表，支持下拉刷新和上拉加载更多')
+      .backgroundColor('#00000000')
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       // 底层：页面底色渐变 + 极光柔光，与首页共用同一张底片。
@@ -1145,83 +1393,26 @@ export struct CategoryPage {
         TapUI({ title: '分类.筛选', showTabs: false, showSearch: true, viewportSize: this.viewportSize,
             topSafeInset: this.safeTop(), materialProgress: this.headerProgress,
             onSearch: () => { this.openSearch(''); } })
-        this.filterPanel()
-        Refresh({ refreshing: $$this.refreshing }) {
-          Stack() {
-            if (this.loadingFirst) {
-              WaterFlow() {
-                ForEach(this.skeletonKeys, (key: number) => {
-                  FlowItem() {
-                    this.filmCardSkeleton()
-                  }
-                    .width(this.cardWide() + 'vp')
-                }, (key: number) => 'category-skeleton-' + key)
-              }
-                .columnsTemplate(this.columnTemplate())
-                .columnsGap(this.columnGap() + 'vp')
-                .rowsGap(this.rowGap() + 'vp')
-                .width('100%')
-                .height('100%')
-                .padding({ left: '24vp', right: '24vp', top: '12vp', bottom: '0vp' })
-                .scrollBar(BarState.Off)
-                .accessibilityText('正在加载分类资源')
-                .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
-            } else if (this.fllba.length === 0) {
-              this.emptyState()
-            } else {
-              Column() {
-                if (this.firstMessage) {
-                  Row() {
-                    Row({ space: 10 }) {
-                      Text(this.firstMessage).fontSize(Ui.fs('12.5vp', this.fontScale)).fontColor(this.normalInk()).layoutWeight(1).maxLines(2)
-                      this.retryButton()
-                    }
-                      .layoutWeight(1)
-                      .padding({ left: '14vp', right: '14vp', top: '8vp', bottom: '8vp' })
-                      .borderRadius(Ui.R_LG)
-                      .backgroundColor(this.panelTone())
-                      .border({ width: 1, color: this.panelRimTone() })
-                      .shadow({ radius: this.panelGlowRadius(), color: this.panelGlowTone(), offsetY: 4 })
-                  }
-                    .width('100%')
-                    .padding({ left: '16vp', right: '16vp', top: '8vp', bottom: '8vp' })
-                    .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
-                }
-                WaterFlow({ scroller: this.flowScroller, footer: this.flowFooter }) {
-                  ForEach(this.fllba, (video: CategoryVideo) => {
-                    // 条目按实际列宽布局，不使用整表百分比宽度的居中 Row，避免卡片向右偏移及裁切。
-                    FlowItem() {
-                      this.filmCard(video)
-                    }
-                      .width(this.cardWide() + 'vp')
-                  }, (video: CategoryVideo) => video.key)
-                }
-                  .columnsTemplate(this.columnTemplate())
-                  .columnsGap(this.columnGap() + 'vp')
-                  .rowsGap(this.rowGap() + 'vp')
-                  .width('100%')
-                  .layoutWeight(1)
-                  .constraintSize({ minHeight: '0vp' })
-                  // 不再为底栏 / 手势条预留底部占位：卡片流铺到屏幕最底部，悬浮玻璃底栏只叠加显示。
-                  .padding({ left: '24vp', right: '24vp', top: '12vp', bottom: '0vp' })
-                  .scrollBar(BarState.Off)
-                  .onReachEnd(() => { this.loadNextPage(); })
-                  .onScrollStart(() => { this.beginFilterScroll(); })
-                  .onDidScroll((_scrollOffset: number, scrollState: ScrollState) => { this.updateHeaderProgress(scrollState); })
-                  .onScrollStop(() => { this.updateHeaderProgress(); })
-              }
-                .width('100%')
-                .height('100%')
-                .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseInOut }))
+        if (this.sideFilter()) {
+          Row({ space: '0vp' }) {
+            Column() {
+              this.filterPanelSide()
             }
-          }.width('100%').height('100%')
+              .width(this.filterSideWidth() + 'vp')
+              .height('100%')
+            Column() {
+              this.resultFlow()
+            }
+              .layoutWeight(1)
+              .height('100%')
+          }
+            .width('100%')
+            .layoutWeight(1)
+            .constraintSize({ minHeight: '0vp' })
+        } else {
+          this.filterPanel()
+          this.resultFlow()
         }
-          .width(this.listWide() + 'vp')
-          .layoutWeight(1)
-          .constraintSize({ minHeight: '0vp', maxWidth: this.flowMaxWide + 'vp' })
-          .alignSelf(ItemAlign.Center)
-          .onRefreshing(() => { this.refreshFirstPage(); })
-          .accessibilityText('分类资源列表，支持下拉刷新和上拉加载更多')
       }
         .width('100%')
         .height('100%')
@@ -1243,3 +1434,4 @@ export struct CategoryPage {
     Logger.debug('CategoryPage', '手动切换筛选区域=' + (this.filterExpanded ? '展开' : '收起'));
   }
 }
+

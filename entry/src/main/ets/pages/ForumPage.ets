@@ -89,6 +89,13 @@ export struct ForumPage {
     this.alive = false;
   }
 
+  onPageShow(): void {
+    // 从登录页返回后重新读取会话，登录成功则自动收起遮罩并刷新帖子。
+    if (this.alive && !this.loggedIn) {
+      void this.prepare();
+    }
+  }
+
   private async prepare(): Promise<void> {
     try {
       this.session = await CommunityApi.readSession();
@@ -1067,6 +1074,55 @@ export struct ForumPage {
     }
   }
 
+  private openLogin(): void {
+    router.pushUrl({ url: 'pages/LoginPage' }).catch((error: Error) => {
+      Logger.error('FORUM_PAGE', '打开登录页失败：' + String(error));
+    });
+  }
+
+  @Builder private loginMask() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(Ui.scrim(this.darkTheme));
+      Column({ space: '12vp' }) {
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width('54vp')
+            .height('54vp')
+            .borderRadius('27vp')
+            .backgroundColor(Ui.accentSoft(this.darkTheme));
+          SymbolGlyph($r('sys.symbol.doc_text'))
+            .fontSize(Ui.fs('24vp', this.fontScale))
+            .fontColor([Ui.accentStrong(this.darkTheme)]);
+        }
+          .width('54vp')
+          .height('54vp');
+        Text('登录后浏览论坛')
+          .fontSize(Ui.fs('18vp', this.fontScale))
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Ui.ink(this.darkTheme));
+        Text('登录后可浏览帖子、发帖与参与评论')
+          .fontSize(Ui.fs('12.5vp', this.fontScale))
+          .fontColor(Ui.inkSoft(this.darkTheme))
+          .textAlign(TextAlign.Center)
+          .maxLines(2);
+        PrimaryButton({ label: '去登录', onTap: (): void => { this.openLogin(); } });
+      }
+        .width('84%')
+        .constraintSize({ maxWidth: '340vp' })
+        .padding('22vp')
+        .borderRadius('22vp')
+        .backgroundColor(Ui.glassTintStrong(this.darkTheme))
+        .backdropBlur(18)
+        .alignItems(HorizontalAlign.Center);
+    }
+      .width('100%')
+      .height('100%')
+      .zIndex(30);
+  }
+
   build() {
     Stack() {
       Column()
@@ -1120,6 +1176,9 @@ export struct ForumPage {
         } catch (error) {
           Logger.warn('FORUM_PAGE', '更新论坛页宽度失败：' + String(error));
         }
+      })
+      .bindContentCover(!this.loggedIn, this.loginMask(), {
+        modalTransition: ModalTransition.NONE
       })
   }
 }

@@ -13,11 +13,32 @@ export struct FilmTile {
   @StorageLink('fontScale') private fontScale: number = 1;
   @Prop film: Film;
   @Prop tablet: boolean = false;
+  /** 分类页传入真实封面；为空时沿用题材渐变占位。 */
+  @Prop cover: string = '';
+  /** 分类页复用同一卡片视觉：点击后按片名进入搜索，而不是直接播放。 */
+  @Prop searchMode: boolean = false;
   @StorageLink('darkTheme') dark: boolean = true;
   @State private pressed: boolean = false;
+  @State private hovered: boolean = false;
+  @State private coverFailed: boolean = false;
+
+  private hasCover(): boolean {
+    return this.cover.length > 0 && !this.coverFailed;
+  }
 
   private tileHeight(): number { return this.tablet ? 300 : 208; }
   private radius(): number { return this.tablet ? 26 : 22; }
+
+  /** 文本超出卡片宽度时自动跑马灯，未超出时静止显示。 */
+  @Builder
+  private marqueeText(text: string, size: string, color: string, weight: FontWeight, tall: string) {
+    Marquee({ start: true, step: 5, loop: -1, fromStart: true, src: text })
+      .fontSize(size)
+      .fontColor(color)
+      .fontWeight(weight)
+      .width('100%')
+      .height(tall)
+  }
 
   build() {
     Stack({ alignContent: Alignment.BottomStart }) {
@@ -28,13 +49,23 @@ export struct FilmTile {
           angle: 150,
           colors: [[Ui.genreTop(this.film.genre, this.dark), 0], [Ui.genreBottom(this.film.genre, this.dark), 1]]
         })
-      // 首字水印：不用图片也有海报感
-      Text(Ui.genreGlyph(this.film.genre))
-        .fontSize(Ui.fs(this.tablet ? '150vp' : '104vp', this.fontScale))
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .opacity(0.14)
-        .translate({ x: this.tablet ? 116 : 78, y: -34 })
+      if (this.hasCover()) {
+        Image(this.cover)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .onError(() => { this.coverFailed = true; })
+          .accessibilityLevel('no')
+      }
+      // 首字水印：没有真实封面时提供海报感
+      if (!this.hasCover()) {
+        Text(Ui.genreGlyph(this.film.genre))
+          .fontSize(Ui.fs(this.tablet ? '150vp' : '104vp', this.fontScale))
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .opacity(0.14)
+          .translate({ x: this.tablet ? 116 : 78, y: -34 })
+      }
       // 顶部柔光 + 底部压暗：两层都铺满整卡，避免依赖 Stack 对齐
       Column()
         .width('100%').height('100%')
@@ -73,26 +104,16 @@ export struct FilmTile {
           .width('100%')
         Blank()
         Column({ space: 4 }) {
-          Text(this.film.name)
-            .fontSize(Ui.fs(this.tablet ? '19vp' : '16vp', this.fontScale))
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-          Text(this.film.description)
-            .fontSize(Ui.fs(this.tablet ? '12.5vp' : '11.5vp', this.fontScale))
-            .fontColor('#E6FFFFFF')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
+          this.marqueeText(this.film.name, Ui.fs(this.tablet ? '19vp' : '16vp', this.fontScale),
+            '#FFFFFF', FontWeight.Bold, '24vp')
+          this.marqueeText(this.film.description, Ui.fs(this.tablet ? '12.5vp' : '11.5vp', this.fontScale),
+            '#E6FFFFFF', FontWeight.Normal, '19vp')
           Row({ space: 6 }) {
-            Text(this.film.year + ' · ' + this.film.region + ' · 全' + this.film.episodes + '集')
-              .fontSize(Ui.fs('10.5vp', this.fontScale))
-              .fontColor('#B3FFFFFF')
-              .maxLines(1)
+            Row() {
+              this.marqueeText(this.film.year + ' · ' + this.film.region + ' · 全' + this.film.episodes + '集',
+                Ui.fs('10.5vp', this.fontScale), '#B3FFFFFF', FontWeight.Normal, '18vp')
+            }
               .layoutWeight(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
             Row() {
               SymbolGlyph($r('sys.symbol.play_fill')).fontSize(Ui.fs('12vp', this.fontScale)).fontColor(['#FFFFFF'])
             }
@@ -116,14 +137,33 @@ export struct FilmTile {
       .height(this.tileHeight())
       .borderRadius(this.radius())
       .clip(true)
-      .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-      .shadow({ radius: 18, color: Ui.shadowSoft(this.dark), offsetY: 10 })
-      .scale({ x: this.pressed ? 0.97 : 1, y: this.pressed ? 0.97 : 1 })
-      .animation({ duration: UiMotion.PRESS, curve: Curve.FastOutSlowIn })
+      .border({
+        width: this.hovered ? 1.5 : 1,
+        color: this.hovered ? Ui.accent(this.dark) : Ui.glassRingSoft(this.dark)
+      })
+      .shadow({
+        radius: this.hovered ? 28 : 18,
+        color: this.hovered ? Ui.accentGlow(this.dark) : Ui.shadowSoft(this.dark),
+        offsetY: this.hovered ? 14 : 10
+      })
+      .translate({ y: this.hovered ? -5 : 0 })
+      .scale({
+        x: this.pressed ? 0.97 : (this.hovered ? 1.025 : 1),
+        y: this.pressed ? 0.97 : (this.hovered ? 1.025 : 1)
+      })
+      .animation({ duration: UiMotion.BASE, curve: Curve.FastOutSlowIn })
       .hoverEffect(HoverEffect.None)
+      .onHover((isHover: boolean) => { this.hovered = isHover; })
       .accessibilityText(this.film.name + '，' + this.film.genre + '，点击播放')
       .onTouch((event: TouchEvent) => { this.pressed = event.type === TouchType.Down; })
-      .onClick(() => { AppState.play(this.film); })
+      .onClick(() => {
+        if (this.searchMode) {
+          AppStorage.setOrCreate('searchQuery', this.film.name);
+          AppState.go('search');
+          return;
+        }
+        AppState.play(this.film);
+      })
   }
 }
 

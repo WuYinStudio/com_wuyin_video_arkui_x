@@ -1,4 +1,5 @@
 import { Ui } from '../common/Ui';
+import { PlatformLinks } from '../common/PlatformLinks';
 
 /**
  * XML 卡片消息（QQ 风格）通用模型。
@@ -154,6 +155,8 @@ export struct ChatCardMessage {
   @Prop count: string = '';
   @Prop blessing: string = '';
   @Prop address: string = '';
+  /** 外链平台：wechat / douyin / kuaishou / xiaohongshu / github。 */
+  @Prop platformKey: string = '';
   /** 音频卡：是否正在播放（由页面传入）。 */
   @Prop playing: boolean = false;
   @Prop positionMs: number = 0;
@@ -161,6 +164,11 @@ export struct ChatCardMessage {
   onTap: () => void = (): void => {};
   /** 拖动进度条：回传 0~100 的百分比。 */
   onSeekPercent: (percent: number) => void = (percent: number): void => {};
+  /** 语音条波形区域的实测宽度，用来把触摸位置换算成进度百分比。 */
+  @State private waveSpan: number = 0;
+
+  /** 语音条波形柱高度（vp），固定一组，避免每次渲染抖动。 */
+  private static readonly waveHeights: number[] = [8, 14, 20, 11, 24, 17, 9, 21, 26, 13, 18, 10, 23, 15, 8, 19, 25, 12, 16, 22];
 
   private accentText(): string {
     return Ui.fs(this.kind === 'redpacket' ? '15vp' : '13.5vp', this.fontScale);
@@ -209,7 +217,10 @@ export struct ChatCardMessage {
   }
 
   build() {
-    Column({ space: '8vp' }) {
+    if (this.kind === 'audio') {
+      this.voiceCard()
+    } else {
+      Column({ space: '8vp' }) {
       // 视频卡：上方 16:9 封面 + 播放图标 + 时长角标，点封面直接播放。
       if (this.kind === 'video' && this.coverUrl().length > 0) {
         Stack({ alignContent: Alignment.Center }) {
@@ -238,25 +249,34 @@ export struct ChatCardMessage {
       }
       Row({ space: '10vp' }) {
         Stack({ alignContent: Alignment.Center }) {
-          Column()
-            .width('40vp')
-            .height('40vp')
-            .borderRadius('12vp')
-            .linearGradient({
-              angle: 140,
-              colors: this.kind === 'redpacket'
-                ? [[Ui.gold(this.darkTheme), 0], ['#FF8A3D', 1]]
-                : [[Ui.brandFrom(), 0], [Ui.brandMid(), 0.55], [Ui.brandTo(), 1]]
-            })
-          if (this.kind === 'audio') {
-            SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
-              .fontSize(Ui.fs('18vp', this.fontScale))
-              .fontColor(['#FFFFFF'])
+          if (this.platformKey.length > 0) {
+            Image(PlatformLinks.icon(this.platformKey))
+              .width('40vp')
+              .height('40vp')
+              .borderRadius('12vp')
+              .objectFit(ImageFit.Contain)
+              .backgroundColor('#FFFFFF')
           } else {
-            Text(this.source.length > 0 ? this.source.substring(0, 1) : (this.kind === 'redpacket' ? '红' : '卡'))
-              .fontSize(Ui.fs('16vp', this.fontScale))
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
+            Column()
+              .width('40vp')
+              .height('40vp')
+              .borderRadius('12vp')
+              .linearGradient({
+                angle: 140,
+                colors: this.kind === 'redpacket'
+                  ? [[Ui.gold(this.darkTheme), 0], ['#FF8A3D', 1]]
+                  : [[Ui.brandFrom(), 0], [Ui.brandMid(), 0.55], [Ui.brandTo(), 1]]
+              })
+            if (this.kind === 'audio') {
+              SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+                .fontSize(Ui.fs('18vp', this.fontScale))
+                .fontColor(['#FFFFFF'])
+            } else {
+              Text(this.source.length > 0 ? this.source.substring(0, 1) : (this.kind === 'redpacket' ? '红' : '卡'))
+                .fontSize(Ui.fs('16vp', this.fontScale))
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#FFFFFF')
+            }
           }
         }
           .width('40vp')
@@ -329,12 +349,87 @@ export struct ChatCardMessage {
       }
         .width('100%')
         .alignItems(VerticalAlign.Center)
+      }
+        .width('230vp')
+        .padding('10vp')
+        .borderRadius('14vp')
+        .backgroundColor(this.darkTheme ? Ui.glassTintSoft(this.darkTheme) : '#FFFFFFFF')
+        .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
+        .onClick(() => { this.onTap(); })
     }
-      .width('230vp')
-      .padding('10vp')
+  }
+
+  /** 语音条：紧凑尺寸，波形本身就是进度条（点/拖波形即 seek），右侧「语音 N″」。 */
+  @Builder
+  private voiceCard() {
+    Row({ space: '8vp' }) {
+      // 圆形播放/暂停键
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width('34vp')
+          .height('34vp')
+          .borderRadius('17vp')
+          .backgroundColor(this.darkTheme ? '#1F1F22' : '#FFFFFF')
+          .border({ width: 1.5, color: Ui.accent(this.darkTheme) })
+        SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+          .fontSize(Ui.fs('15vp', this.fontScale))
+          .fontColor([Ui.accent(this.darkTheme)])
+      }
+        .width('34vp')
+        .height('34vp')
+      // 频谱波纹：本身就是进度条，已播放段点亮 + 游标柱加高；点按/拖动波形即可调进度。
+      Row({ space: '2vp' }) {
+        ForEach(ChatCardMessage.waveHeights, (height: number, index: number) => {
+          Column()
+            .width('2.5vp')
+            .height(this.barHeight(height, index) + 'vp')
+            .borderRadius('1.25vp')
+            .backgroundColor(index * 100 / ChatCardMessage.waveHeights.length <= this.progressPercent()
+              ? Ui.accent(this.darkTheme) : Ui.inkFaint(this.darkTheme))
+        }, (height: number, index: number) => 'wave-' + String(index) + '-' + String(height))
+      }
+        .layoutWeight(1)
+        .height('36vp')
+        .alignItems(VerticalAlign.Center)
+        .justifyContent(FlexAlign.Start)
+        .onAreaChange((_old: Area, area: Area) => {
+          const span: number = Number(area.width);
+          if (Number.isFinite(span) && span > 0) { this.waveSpan = span; }
+        })
+        .onTouch((event: TouchEvent) => {
+          // 波形即进度：按下/拖动都按横向位置换算百分比。
+          if (event.touches.length === 0 || this.waveSpan <= 0) { return; }
+          const ratio: number = event.touches[0].x / this.waveSpan;
+          const percent: number = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+          this.onSeekPercent(percent);
+        })
+      Text(this.durationLabel())
+        .fontSize(Ui.fs('14.5vp', this.fontScale))
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Ui.ink(this.darkTheme))
+        .maxLines(1)
+    }
+      .width('218vp')
+      .padding({ left: '9vp', right: '10vp', top: '8vp', bottom: '8vp' })
       .borderRadius('14vp')
       .backgroundColor(this.darkTheme ? Ui.glassTintSoft(this.darkTheme) : '#FFFFFFFF')
       .border({ width: 1, color: Ui.cardBorderSoft(this.darkTheme) })
       .onClick(() => { this.onTap(); })
+  }
+
+  /** 当前播放位置的柱子加高一截，模拟 QQ 的游标。 */
+  private barHeight(base: number, index: number): number {
+    if (this.durationMs <= 0) { return base; }
+    const cursor: number = Math.round(this.progressPercent() / 100 * (ChatCardMessage.waveHeights.length - 1));
+    return index === cursor ? base + 8 : base;
+  }
+
+  /** 右侧文案：QQ 同款「语音 3″」；还没拿到时长时优先用卡片标题。 */
+  private durationLabel(): string {
+    if (this.durationMs > 0) {
+      return '语音 ' + String(Math.max(1, Math.round(this.durationMs / 1000))) + '″';
+    }
+    if (this.title.length > 0) { return this.title; }
+    return '语音';
   }
 }
