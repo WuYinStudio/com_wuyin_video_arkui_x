@@ -27,9 +27,12 @@ import { CoPlayLanService } from '../common/CoPlayLanService';
 import { CoPlayTransport, CoPlayInvitation } from '../common/CoPlayTransport';
 import { parseWzlj, WzljEpisode } from '../common/WzljParser';
 
-class CrossWant extends Want {
+// iOS ArkUI-X 不提供 @ohos:app.ability.Want 的运行时构造器，
+// 这里只做结构类型，不能 extends Want，否则启动时 parent class is not constructor。
+interface CrossWant {
   uri?: string;
   action?: string;
+  parameters?: Record<string, Object>;
 }
 
 interface SessionVideoInfo {

@@ -8,6 +8,8 @@ on:
   push:
     paths:
       - '.github/workflows/ios-simulator.yml'
+      - 'entry/src/main/ets/**'
+      - '.arkui-x/ios/arkui-x/**'
 
 permissions:
   contents: read
