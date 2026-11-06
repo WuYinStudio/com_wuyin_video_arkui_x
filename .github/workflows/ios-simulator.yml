@@ -91,7 +91,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -f /tmp/app.log || exit 0
-          tail -n 600 /tmp/app.log > /tmp/app-tail.log
+          {
+            echo "### matched errors"
+            grep -iE 'error|fail|exception|not found|dlopen|LoadModuleLibrary|uicontext|TypeError|undefined' /tmp/app.log | tail -n 100 || true
+            echo "### tail"
+            tail -n 120 /tmp/app.log
+          } > /tmp/app-tail.log
           jq -n --rawfile summary /tmp/app-tail.log --arg sha "$GITHUB_SHA" \
             '{name:"ios-sim-log", head_sha:$sha, status:"completed", conclusion:"failure", output:{title:"iOS simulator log", summary:$summary}}' \
             > /tmp/check.json
