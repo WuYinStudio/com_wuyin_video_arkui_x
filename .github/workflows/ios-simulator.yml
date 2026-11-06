@@ -69,6 +69,7 @@ jobs:
           set -euo pipefail
           UDID=$(xcrun simctl list devices available | grep -m1 -E 'iPhone' | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
           echo "simulator=$UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl install "$UDID" build/sim/app.app
@@ -86,6 +87,26 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Collect crash diagnostics
+        if: always()
+        run: |
+          set +e
+          {
+            echo "## crash diagnostics"
+            echo "### app process"
+            xcrun simctl spawn "$UDID" launchctl list | grep -i wuyin || true
+            echo "### crash reports"
+            find ~/Library/Logs/DiagnosticReports -maxdepth 1 -type f -mmin -15 -print
+            for f in $(find ~/Library/Logs/DiagnosticReports -maxdepth 1 -type f -mmin -15); do
+              echo "== $f"
+              head -n 180 "$f"
+            done
+            echo "### unified log"
+            xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' | tail -n 250 || true
+          } > /tmp/crash.log 2>&1
+          cat /tmp/crash.log
+          cat /tmp/crash.log >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publish log as check run
         if: always()
         continue-on-error: true
@@ -93,11 +114,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -f /tmp/app.log || exit 0
+          cat /tmp/app.log /tmp/crash.log > /tmp/all.log 2>/dev/null || true
           {
             echo "### matched errors"
-            grep -iE 'error|fail|exception|not found|dlopen|LoadModuleLibrary|uicontext|TypeError|undefined' /tmp/app.log | tail -n 100 || true
+            grep -iE 'error|fail|exception|not found|dlopen|LoadModuleLibrary|uicontext|TypeError|undefined|crash|SIGABRT|SIGSEGV' /tmp/all.log | tail -n 120 || true
             echo "### tail"
-            tail -n 120 /tmp/app.log
+            tail -n 150 /tmp/all.log
           } > /tmp/app-tail.log
           jq -n --rawfile summary /tmp/app-tail.log --arg sha "$GITHUB_SHA" \
             '{name:"ios-sim-log", head_sha:$sha, status:"completed", conclusion:"failure", output:{title:"iOS simulator log", summary:$summary}}' \
@@ -111,5 +133,6 @@ jobs:
           name: ios-simulator-diagnostics
           path: |
             /tmp/app.log
+            /tmp/crash.log
             /tmp/sim.png
           if-no-files-found: warn
