@@ -101,8 +101,10 @@ jobs:
               echo "== $f"
               head -n 180 "$f"
             done
+            echo "### simulator crash reports"
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Logs" -type f -mmin -15 -print 2>/dev/null || true
             echo "### unified log"
-            xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' | tail -n 250 || true
+            xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app" OR eventMessage CONTAINS "com.wuyin.video"' | tail -n 300 || true
           } > /tmp/crash.log 2>&1
           cat /tmp/crash.log
           cat /tmp/crash.log >> "$GITHUB_STEP_SUMMARY"
@@ -143,10 +145,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          touch /tmp/crash.log /tmp/sim.png
           tag="ios-sim-diag-$(date -u +%Y%m%d-%H%M%S)"
-          gh release create "$tag" /tmp/crash.log /tmp/sim.png \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "iOS simulator diagnostics ${GITHUB_SHA::7}" \
-            --notes "Simulator crash log and screenshot for ${GITHUB_SHA}."
+          if [ -s /tmp/crash.log ]; then
+            head -c 100000 /tmp/crash.log > /tmp/crash-notes.md
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iOS simulator diagnostics ${GITHUB_SHA::7}" \
+              --notes-file /tmp/crash-notes.md
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iOS simulator diagnostics ${GITHUB_SHA::7}" \
+              --notes "No crash log captured."
+          fi
+          if [ -s /tmp/sim.png ]; then
+            gh release upload "$tag" /tmp/sim.png --repo "$GITHUB_REPOSITORY" --clobber || true
+          fi
           echo "diagnostics_release=$tag" >> "$GITHUB_STEP_SUMMARY"
