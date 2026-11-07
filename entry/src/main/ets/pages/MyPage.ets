@@ -12,8 +12,7 @@ import { Logger } from '../common/Logger';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassIconButton, PrimaryButton, SectionHeader } from '../common/UiWidgets';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 
 export interface UserInfo {
   userId: string;
@@ -1110,14 +1109,14 @@ export struct MyPage {
         this.toastNotice('请先登录后再修改头像');
         return;
       }
-      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
-      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      const result: photoAccessHelper.PhotoSelectResult = await picker.select(options);
-      if (result.photoUris.length === 0) { return; }
-      const uri: string = result.photoUris[0];
-      this.toastNotice('正在上传头像…');
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp)|.jpg,.jpeg,.png,.webp'];
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const photoPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(context);
+      const result: string[] = await photoPicker.select(options);
+      if (result.length === 0) { return; }
+      const uri: string = result[0];
+      this.toastNotice('正在上传头像…');
       const localPath: string = this.copyUriToCache(context, uri);
       const store: preferences.Preferences = await preferences.getPreferences(context, 'wuyin');
       const pass: string = String(await store.get('$pass', ''));

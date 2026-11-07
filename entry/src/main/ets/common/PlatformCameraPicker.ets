@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { picker } from '@kit.CoreFileKit';
 
 /** 相机枚举占位。 */
 export namespace camera {
@@ -35,12 +35,11 @@ export namespace cameraPicker {
     mediaTypes: PickerMediaType[], profile?: PickerProfile): Promise<PickerResult> {
     // 跨平台回退：相机能力未接原生桥时，改从系统相册选择图片。
     try {
-      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
-      const result: photoAccessHelper.PhotoSelectResult = await picker.select({
-        MIMEType: photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE
-      });
-      if (result.photoUris.length > 0) {
-        return { resultUri: result.photoUris[0], mediaType: PickerMediaType.PHOTO };
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp)|.jpg,.jpeg,.png,.webp'];
+      const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
+      if (uris.length > 0) {
+        return { resultUri: uris[0], mediaType: PickerMediaType.PHOTO };
       }
     } catch (_) {
     }

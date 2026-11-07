@@ -1,11 +1,10 @@
 import { media } from '@kit.MediaKit';
-import { window, router, promptAction, display } from '@kit.ArkUI';
+import { window, router, promptAction } from '@kit.ArkUI';
 import { PiPWindow } from '../common/PlatformPiP';
 import { preferences } from '@kit.ArkData';
 import { common, abilityAccessCtrl, bundleManager } from '@kit.AbilityKit';
 import { backgroundTaskManager, wantAgent } from '../common/PlatformBackground';
-import { notificationManager } from '@kit.NotificationKit';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { NotificationService } from '../common/NotificationService';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { image } from '@kit.ImageKit';
@@ -93,7 +92,6 @@ interface CoPlayIncomingRoute {
 }
 interface DanmakuRankedResult { result: DanmakuSearchResult; score: number; }
 interface WindowRestoreState { orientation: window.Orientation; }
-interface ScreenshotCreationConfig { title: string; fileNameExtension: string; photoType: photoAccessHelper.PhotoType; }
 interface PlayerWatchRecord { vodId: string; selectIndex: number; playSec: number; videoName: string; }
 enum PlayerDownloadPhase { READY = 'ready', SNIFFING = 'sniffing', DOWNLOADING = 'downloading', COMPLETED = 'completed' }
 
@@ -3101,16 +3099,9 @@ struct PlayerPage {
     void this.selectSource(true);
   }
 
-  /** 读取屏幕硬件 HDR 能力：hdrFormats 非空才允许开启 HDR。 */
+  /** 读取屏幕硬件 HDR 能力：iOS 壳未暴露 Display，按不支持处理。 */
   private displaySupportsHdr(): boolean {
-    try {
-      const screen: display.Display = display.getDefaultDisplaySync();
-      const formats: number[] = [];
-      return formats !== undefined && formats.length > 0;
-    } catch (error) {
-      Logger.warn('PLAYER_HDR', '读取屏幕 HDR 能力失败：' + String(error));
-      return false;
-    }
+    return false;
   }
 
   /** 是否支持 AIHDR 硬件渲染（HDRFormat.VIDEO_AIHDR = 8）。 */
@@ -3399,30 +3390,10 @@ struct PlayerPage {
     }
   }
 
-  /** 通知权限（user_grant）：后台播放需要的常驻通知必须先获得用户授权。 */
+  /** 通知权限：iOS / Android 由跨平台通知层处理，失败不阻断播放。 */
   private async ensureNotificationPermission(context: common.UIAbilityContext, interactive: boolean): Promise<boolean> {
     try {
-      const enabled: boolean = await notificationManager.isNotificationEnabled();
-      if (enabled) {
-        return true;
-      }
-      if (!interactive) {
-        // 静默恢复不弹框，也不阻断：交给连续任务启动结果判断。
-        return true;
-      }
-      Logger.info('PLAYER_SETTINGS', '通知未开启，动态申请通知权限');
-      try {
-        await notificationManager.requestEnableNotification(context);
-      } catch (requestError) {
-        // 用户拒绝过通知授权时系统会直接报 1600004，不再重复弹框，这里不阻断后台播放。
-        Logger.warn('PLAYER_SETTINGS', '通知授权被拒绝：' + String(requestError));
-      }
-      const after: boolean = await notificationManager.isNotificationEnabled();
-      if (!after) {
-        // 通知被拒绝时仍继续尝试后台任务（AVSession 可能接管通知），
-        // 真正失败会由 startBackgroundRunning 的 9800006 给出明确原因。
-        this.toast('通知未开启，后台播放可能没有通知提示');
-      }
+      await NotificationService.ensurePermission(context);
       return true;
     } catch (error) {
       Logger.warn('PLAYER_SETTINGS', '检查通知权限失败：' + String(error));

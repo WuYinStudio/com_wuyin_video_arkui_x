@@ -1,6 +1,4 @@
 import { Theme } from '@kit.ArkUI';
-import deviceInfo from '@ohos.deviceInfo';
-import display from '@ohos.display';
 import { http } from '@kit.NetworkKit';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -164,9 +162,7 @@ export struct CategoryPage {
 
   /** 大屏分类页：筛选面板贴左侧导航栏，列表在右。 */
   private sideFilter(): boolean {
-    const type: string = String(deviceInfo.deviceType || '');
-    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
-    return !phone && this.viewportSize >= 760;
+    return this.viewportSize >= 760;
   }
   private railWidth(): number {
     if (this.sideNavCollapsed) {
@@ -209,16 +205,6 @@ export struct CategoryPage {
   private columnCount(): number {
     const width: number = this.listWide();
     if (width < 600) { return 1; }
-    const type: string = String(deviceInfo.deviceType || '');
-    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
-    if (phone) {
-      let foldable: boolean = false;
-      try { foldable = display.isFoldable(); } catch (_) { foldable = false; }
-      if (!foldable) { return 1; }
-      // 双折叠/三折叠：至少 2 列，宽屏最多 3 列。
-      return width >= 1100 ? 3 : 2;
-    }
-    // 平板、PC、智慧屏按可用宽度递增，最多 3 列。
     if (width >= 1100) { return 3; }
     if (width >= 700) { return 2; }
     return 1;

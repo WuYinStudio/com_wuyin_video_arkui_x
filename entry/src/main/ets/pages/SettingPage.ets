@@ -3,7 +3,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { router } from '@kit.ArkUI';
 import { AppConfig } from '../common/AppConfig';
 import { ImageHostConfig, ImageHostResult, ImageHostService } from '../common/ImageHostService';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { picker } from '@kit.CoreFileKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ChatAlertService } from '../common/ChatAlertService';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -465,11 +465,11 @@ export struct SettingPage {
     this.imageHostTestOk = false;
     this.imageHostTestText = '正在选择图片…';
     try {
-      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
-      const selected: photoAccessHelper.PhotoSelectResult = await picker.select(options);
-      const uris: string[] = selected.photoUris;
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp)|.jpg,.jpeg,.png,.webp'];
+      const selected: string[] = await new picker.DocumentViewPicker(
+        getContext(this) as common.UIAbilityContext).select(options);
+      const uris: string[] = selected;
       if (uris.length === 0) {
         this.imageHostTestText = '已取消测试';
         return;

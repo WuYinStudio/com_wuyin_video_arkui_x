@@ -1,7 +1,7 @@
 import { detectBarcode, scanBarcode, scanCore } from '../common/PlatformScanKit';
 import { router } from '@kit.ArkUI';
 import { abilityAccessCtrl, common, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { picker } from '@kit.CoreFileKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { PlatformInfo } from '../common/PlatformInfo';
@@ -249,17 +249,18 @@ export struct ScanPage {
     if (this.albumBusy) { return; }
     this.albumBusy = true;
     try {
-      const picker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
-      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      const picked: photoAccessHelper.PhotoSelectResult = await picker.select(options);
-      if (picked.photoUris.length === 0) {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp)|.jpg,.jpeg,.png,.webp'];
+      const photoPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(
+        getContext(this) as common.UIAbilityContext);
+      const picked: string[] = await photoPicker.select(options);
+      if (picked.length === 0) {
         this.statusText = '未选择图片';
         return;
       }
       const values: string[] = [];
-      this.statusText = '正在识别 ' + String(picked.photoUris.length) + ' 张图片中的二维码…';
-      for (const uri of picked.photoUris) {
+      this.statusText = '正在识别 ' + String(picked.length) + ' 张图片中的二维码…';
+      for (const uri of picked) {
         try {
           const results: scanBarcode.ScanResult[] = await detectBarcode.decode({ uri: uri },
             { scanTypes: [scanCore.ScanType.QR_CODE] });

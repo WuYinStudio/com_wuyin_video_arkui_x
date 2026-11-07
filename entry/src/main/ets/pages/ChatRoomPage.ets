@@ -26,7 +26,6 @@ import { AuroraBackdrop, EmptyState, GhostButton, GlassChip, PrimaryButton } fro
 import { ChatNoticeBanner } from '../components/ChatNoticeBanner';
 import { ArkCard, isArkCard, parseArkCard, schemeHost, schemeValue } from '../common/ArkCard';
 import { ChatArchive } from '../common/ChatArchive';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { camera, cameraPicker } from '../common/PlatformCameraPicker';
 import { ImageHostResult, ImageHostService } from '../common/ImageHostService';
 import { EmojiStore, StickerItem } from '../common/EmojiStore';
@@ -1391,12 +1390,12 @@ struct ChatRoomPage {
 
   /** 按当前媒体类型打开对应的系统选择器，返回一个 URI（取消则返回空串）。 */
   private async pickMediaUri(): Promise<string> {
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     if (this.mediaKind === 'video') {
-      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.VIDEO_TYPE;
-      const selected: photoAccessHelper.PhotoSelectResult =
-        await new photoAccessHelper.PhotoViewPicker().select(options);
-      return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.fileSuffixFilters = ['视频 (.mp4,.mov,.mkv)|.mp4,.mov,.mkv'];
+      const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
+      return uris.length > 0 ? uris[0] : '';
     }
     if (this.mediaKind === 'audio') {
       const options: picker.AudioSelectOptions = new picker.AudioSelectOptions();
@@ -1405,15 +1404,13 @@ struct ChatRoomPage {
     }
     if (this.mediaKind === 'file') {
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
       return uris.length > 0 ? uris[0] : '';
     }
-    const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-    const selected: photoAccessHelper.PhotoSelectResult =
-      await new photoAccessHelper.PhotoViewPicker().select(options);
-    return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+    const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp)|.jpg,.jpeg,.png,.webp'];
+    const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
+    return uris.length > 0 ? uris[0] : '';
   }
 
   /** 从 URI 末段取文件名，作附件/视频的默认标题。 */
@@ -1526,11 +1523,11 @@ struct ChatRoomPage {
 
   /** 只挑一张图片（表情上传用）。 */
   private async pickImageUri(): Promise<string> {
-    const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-    const selected: photoAccessHelper.PhotoSelectResult =
-      await new photoAccessHelper.PhotoViewPicker().select(options);
-    return selected.photoUris.length > 0 ? selected.photoUris[0] : '';
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    options.fileSuffixFilters = ['图片 (.jpg,.jpeg,.png,.webp,.gif)|.jpg,.jpeg,.png,.webp,.gif'];
+    const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
+    return uris.length > 0 ? uris[0] : '';
   }
 
   /** 选图 → 上传到奶昔图床 → 收进本地表情包。动图静态图一样处理。 */
