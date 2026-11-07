@@ -128,6 +128,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onCreate(want: Want): void {
+    // 先初始化日志目录，保证启动期异常也能落盘。
+    try { Logger.init(this.context); } catch (error) { console.error('Logger init failed: ' + String(error)); }
     // 分享接收使用真实的 UIAbility Want 回调，不注册不存在的华为分享事件。
     try { void this.captureSharedWant(want, '冷启动'); }
     catch (error) { Logger.error('SCHEME', '读取冷启动分享链接失败：' + String(error)); }

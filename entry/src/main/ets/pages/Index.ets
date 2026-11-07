@@ -60,6 +60,7 @@ struct Index {
   /** 云端 iOS 自测：先测网络桥，再逐页 push，日志写入 runtime.log。 */
   private async runIosSmokeTest(): Promise<void> {
     await this.smokeSleep(1200);
+    AppStorage.setOrCreate('agreementAccepted', true);
     Logger.info('SMOKE', '==== start ====');
     const homeUrl: string = 'http://www.baofeng.com/po/v10/config/channelhome?nav_id=203&pg=1&cp=fr4k0se&cl=newweb_baofeng';
     try {
