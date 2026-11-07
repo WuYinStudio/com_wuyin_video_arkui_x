@@ -57,6 +57,16 @@
     viewController.view.frame = self.window.bounds;
     [self.window layoutIfNeeded];
     NSLog(@"WUYIN window=%@ view=%@", NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame));
+#if TARGET_OS_SIMULATOR
+    UILabel *debugLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, MAX(200, bounds.size.width - 40), 120)];
+    debugLabel.numberOfLines = 0;
+    debugLabel.textColor = [UIColor greenColor];
+    debugLabel.backgroundColor = [UIColor redColor];
+    debugLabel.text = [NSString stringWithFormat:@"WUYIN DEBUG\nwindow=%@\nview=%@",
+                       NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame)];
+    [viewController.view addSubview:debugLabel];
+    [viewController.view bringSubviewToFront:debugLabel];
+#endif
 }
 
 @end
