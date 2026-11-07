@@ -1,6 +1,6 @@
 ﻿import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
+import http from '@ohos.net.http';
 import { fileIo } from '@kit.CoreFileKit';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
