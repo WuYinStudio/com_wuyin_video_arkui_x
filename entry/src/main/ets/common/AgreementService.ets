@@ -43,6 +43,17 @@ export class AgreementService {
   }
 
   static async restore(context: common.UIAbilityContext): Promise<void> {
+    // 云端模拟器诊断：直接跳过协议页，便于截取首页排查。
+    try {
+      const filesDir: string = String(context.filesDir || '');
+      if (filesDir.indexOf('CoreSimulator') >= 0) {
+        AppStorage.setOrCreate('agreementAccepted', true);
+        Logger.info('UserAgreement', '模拟器诊断：跳过协议页');
+        return;
+      }
+    } catch (error) {
+      Logger.error('UserAgreement', '检查模拟器目录失败：' + String(error));
+    }
     AppStorage.setOrCreate('agreementAccepted', false);
     let accepted: boolean = false;
     try {
