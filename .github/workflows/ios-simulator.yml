@@ -139,7 +139,7 @@ jobs:
               head -n 100 "$f"
             done
             echo "### unified log"
-            xcrun simctl spawn "$UDID" log show --last 3m --style compact | grep -iE 'wuyin|arkui|StageApplication|StageVC|EntryAbility|com.wuyin.video' | tail -n 250 || true
+            xcrun simctl spawn "$UDID" log show --last 5m --style compact --predicate 'process == "app"' | tail -n 300 || true
           } > /tmp/crash.log 2>&1
           cat /tmp/crash.log
           cat /tmp/crash.log >> "$GITHUB_STEP_SUMMARY"
