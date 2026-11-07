@@ -56,32 +56,6 @@
     [self.window makeKeyAndVisible];
     viewController.view.frame = self.window.bounds;
     [self.window layoutIfNeeded];
-    NSLog(@"WUYIN window=%@ view=%@", NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame));
-#if TARGET_OS_SIMULATOR
-    UILabel *debugLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, MAX(200, bounds.size.width - 40), 160)];
-    debugLabel.numberOfLines = 0;
-    debugLabel.textColor = [UIColor greenColor];
-    debugLabel.backgroundColor = [UIColor redColor];
-    debugLabel.text = [NSString stringWithFormat:@"WUYIN DEBUG\nwindow=%@\nview=%@",
-                       NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame)];
-    [viewController.view addSubview:debugLabel];
-    [viewController.view bringSubviewToFront:debugLabel];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSMutableString *info = [NSMutableString stringWithFormat:@"WUYIN DEBUG\nwindow=%@\nview=%@",
-                                 NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame)];
-        for (UIView *sub in viewController.view.subviews) {
-            if (sub == debugLabel) { continue; }
-            // ArkUI-X 的 windowView 在 iOS 26 上没有自动撑满，强制设置成根视图大小。
-            sub.frame = viewController.view.bounds;
-            sub.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [info appendFormat:@"\n%@ %@", NSStringFromClass([sub class]), NSStringFromCGRect(sub.frame)];
-        }
-        [viewController.view setNeedsLayout];
-        [viewController.view layoutIfNeeded];
-        debugLabel.text = info;
-        [viewController.view bringSubviewToFront:debugLabel];
-    });
-#endif
 }
 
 @end
