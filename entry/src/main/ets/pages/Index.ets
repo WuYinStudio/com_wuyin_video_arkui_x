@@ -1,4 +1,4 @@
-﻿/*
+/*
 AIGC:
 Label: '1'
 ContentProducer: 'HapCode'
@@ -50,7 +50,6 @@ struct Index {
   aboutToAppear(): void {
     try {
       void this.prepareAgreement();
-      void this.runIosSmokeTest();
     } catch (error) {
       Logger.error('UserAgreement', '准备协议状态失败：' + String(error));
       this.agreementAccepted = false;
