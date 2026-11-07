@@ -1,8 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
-import deviceInfo from '@ohos.deviceInfo';
-import display from '@ohos.display';
 import fs from '@ohos.file.fs';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -339,11 +337,9 @@ export struct HomePage {
     const base: number = Math.max(0, this.viewportWidth - Math.max(0, this.leftSafeInset) - Math.max(0, this.rightSafeInset));
     return Math.max(0, base - (this.sideNav() ? this.sideRailWidth() : 0));
   }
-  /** 平板/PC/智慧屏使用左侧导航栏；手机（含手机横屏）保持底部 Dock。 */
+  /** 宽屏使用左侧导航栏；手机（含横屏）保持底部 Dock。 */
   private sideNav(): boolean {
-    const type: string = String(deviceInfo.deviceType || '');
-    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
-    return !phone && this.viewportWidth >= 600;
+    return this.viewportWidth >= 900;
   }
   private sideRailWidth(): number {
     if (this.sideNavCollapsed) {
@@ -748,17 +744,11 @@ export struct HomePage {
     if (this.tablet()) { return Math.round(Math.min(420, Math.max(286, availableWidth * 0.44))); }
     return Math.round(Math.min(302, Math.max(236, availableWidth * 0.76)));
   }
-  /** 大屏轮播横向同排展示数量：双折叠/三折叠/平板 2，PC/智慧屏 3。 */
+  /** 大屏轮播横向同排展示数量：手机 1，平板 2，PC/智慧屏 3。 */
   private heroColumns(): number {
     if (this.viewportWidth < 600) { return 1; }
     if (Ui.isDesktop(this.viewportWidth) || Ui.isTv(this.viewportWidth)) { return 3; }
-    const type: string = String(deviceInfo.deviceType || '');
-    const phone: boolean = type === 'phone' || type === 'default' || type.length === 0;
-    if (!phone) { return 2; }
-    // 手机横屏仍然只显示单张；折叠屏展开后显示 2 张。
-    let foldable: boolean = false;
-    try { foldable = display.isFoldable(); } catch (_) { foldable = false; }
-    return foldable ? 2 : 1;
+    return this.viewportWidth >= 900 ? 2 : 1;
   }
   private heroMultiHeight(): number { return this.tablet() ? 250 : 230; }
   private heroCardWidth(): number {
