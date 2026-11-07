@@ -54,6 +54,19 @@ REQUIRED = [
     "libutil",
     "libutil_stream",
     "libzlib",
+    # ArkUI 组件在 iOS 上也是独立动态模块；缺少时会在页面挂载瞬间 FATAL
+    # （例如 WallpaperPage 的 Slider 会先报 "Can't find checkbox dynamic module"）。
+    "libarkui_checkbox",
+    "libarkui_radio",
+    "libarkui_slider",
+    "libarkui_gauge",
+    "libarkui_rating",
+    "libarkui_stepper",
+    "libarkui_sidebar",
+    "libarkui_calendarpicker",
+    "libarkui_indexer",
+    "libarkui_linearsplit",
+    "libarkui_timepicker",
 ]
 
 LOAD_DYLIB = 0xC
