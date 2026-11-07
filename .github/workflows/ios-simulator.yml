@@ -71,17 +71,28 @@ jobs:
           echo "simulator=$UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
+          for i in $(seq 1 90); do
+            if xcrun simctl list devices | grep "$UDID" | grep -q '(Booted)'; then
+              echo "booted after ${i} checks"
+              break
+            fi
+            sleep 2
+          done
           xcrun simctl install "$UDID" build/sim/app.app
-          ( xcrun simctl launch --console-pty "$UDID" com.wuyin.video > /tmp/app.log 2>&1 ) &
-          PID=$!
-          sleep 25
-          kill "$PID" 2>/dev/null || true
-          xcrun simctl io "$UDID" screenshot /tmp/sim.png || true
+          set +e
+          xcrun simctl launch "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
+          launch_rc=$?
+          sleep 20
+          xcrun simctl spawn "$UDID" log show --last 2m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
+          xcrun simctl io "$UDID" screenshot /tmp/sim.png
+          set -e
+          echo "launch_rc=$launch_rc"
+          cat /tmp/launch.txt || true
           echo "--- app log ---"
           cat /tmp/app.log || true
           {
             echo "## iOS simulator log"
+            echo "launch_rc=$launch_rc"
             echo '```'
             tail -n 400 /tmp/app.log || true
             echo '```'
