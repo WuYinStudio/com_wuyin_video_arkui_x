@@ -1,5 +1,4 @@
 import { common } from '@kit.AbilityKit';
-import { webview } from '@kit.ArkWeb';
 import { AgreementService } from '../common/AgreementService';
 import { LegalText } from '../common/LegalText';
 import { Logger } from '../common/Logger';
@@ -24,13 +23,6 @@ export struct UserAgreementPage {
   @State private actionError: string = '';
   /** 当前展示的文档：用户协议 / 隐私政策，两份都内置在应用里，断网也能看。 */
   @State private docTab: string = 'agreement';
-  /** 在线协议 WebView 控制器（与 21:37 版本一致：字段初始化时创建）。 */
-  private webController: webview.WebviewController = new webview.WebviewController();
-
-  /** 当前文档的在线地址；为空表示用内置全文。 */
-  private documentUrl(): string {
-    return this.docTab === 'privacy' ? LegalText.PRIVACY_URL : LegalText.AGREEMENT_URL;
-  }
 
   /** 当前文档的段落块（内置文本，见 LegalText）。 */
   private documentBlocks(): string[] {
@@ -176,20 +168,6 @@ export struct UserAgreementPage {
           .width('100%')
           .padding({ left: '16vp', right: '16vp', bottom: '8vp' })
           .justifyContent(FlexAlign.Start)
-        if (this.documentUrl().length > 0) {
-          // 在线协议：直接在应用内打开 AGC 生成的协议页面，避免跳出应用。
-          Web({ src: this.documentUrl(), controller: this.webController })
-            .width('100%')
-            .layoutWeight(1)
-            .backgroundColor(this.pageBackgroundColor())
-            .mixedMode(MixedMode.All)
-            .domStorageAccess(true)
-            .onErrorReceive((event) => {
-              if (event) {
-                Logger.warn('UserAgreement', '在线协议加载失败，改用内置全文：' + event.error.getErrorInfo());
-              }
-            })
-        } else {
         Scroll() {
           Column({ space: '0vp' }) {
             Column({ space: '14vp' }) {
@@ -226,7 +204,6 @@ export struct UserAgreementPage {
           .scrollBar(BarState.Auto)
           .layoutWeight(1)
           .width('100%')
-        }
 
         if (this.actionError.length > 0) {
           Text(this.actionError)
