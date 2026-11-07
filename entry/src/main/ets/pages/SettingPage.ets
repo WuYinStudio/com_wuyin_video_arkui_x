@@ -1,4 +1,4 @@
-﻿import common from '@ohos.app.ability.common';
+import common from '@ohos.app.ability.common';
 import router from '@ohos.router';
 import { AppConfig } from '../common/AppConfig';
 import { ImageHostConfig, ImageHostResult, ImageHostService } from '../common/ImageHostService';
@@ -800,11 +800,10 @@ export struct SettingPage {
   }
 
   private showErrorDialog(title: string, message: string): void {
-    this.getUIContext().getPromptAction().showDialog({
-      title: title,
-        message: message,
-        buttons: [{ text: '确定', color: Ui.accent(this.darkTheme) }]
-    });
+    // iOS 壳的 PromptAction.showDialog 在页面切换/初始化失败时会触发原生 abort，
+    // 这里只记录并复用页内 toast，不再调用系统弹窗。
+    Logger.error('SETTING_DIALOG', title + '：' + message);
+    this.showToast(title + '：' + message);
   }
 
   private showOperationError(message: string): void {
