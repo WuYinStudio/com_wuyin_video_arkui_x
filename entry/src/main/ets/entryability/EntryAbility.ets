@@ -695,13 +695,9 @@ export default class EntryAbility extends UIAbility {
 
   private async initializeWindow(windowStage: window.WindowStage): Promise<void> {
     this.indexLoaded = false;
-    // iOS 上部分窗口/偏好 API 可能一直不 resolve；超时后先加载入口页，避免永久白屏。
-    const watchdog = setTimeout(() => {
-      if (this.stage === windowStage && !this.indexLoaded) {
-        Logger.warn('SCHEME', '启动初始化超时，先加载入口页面');
-        this.loadIndex(windowStage);
-      }
-    }, 5000);
+    // 先渲染入口页，再异步恢复配置/窗口状态；iOS 上某些初始化可能长期不 resolve，
+    // 不能让它阻塞首帧，否则就是黑屏/白屏。
+    this.loadIndex(windowStage);
     // 先恢复 AppConfig 与 AppState 的持久化配置，再创建页面。
     try {
       if (!this.configReady) {
@@ -722,7 +718,7 @@ export default class EntryAbility extends UIAbility {
         this.configReady = true;
       }
     } catch (error) { Logger.error('GLOBAL_CONFIG', '恢复全局配置失败：' + String(error)); }
-    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
+    if (this.stage !== windowStage) { return; }
     // 协议状态必须在入口页面和外部分享链接可用前从磁盘恢复。
     try { await AgreementService.restore(this.context); }
     catch (error) {
@@ -730,7 +726,7 @@ export default class EntryAbility extends UIAbility {
       try { AppStorage.setOrCreate('agreementAccepted', false); }
       catch (storageError) { Logger.error('UserAgreement', '重置协议状态失败：' + String(storageError)); }
     }
-    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
+    if (this.stage !== windowStage) { return; }
     // 所有页面及路由共用透明系统栏；毛玻璃开关只控制应用组件材质。
     try {
       const mainWindow = windowStage.getMainWindowSync();
@@ -740,9 +736,6 @@ export default class EntryAbility extends UIAbility {
       });
       await Promise.race([attachPromise, timeoutPromise]);
     } catch (error) { Logger.error('GLOBAL_IMMERSIVE', '准备应用窗口失败：' + String(error)); }
-    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
-    clearTimeout(watchdog);
-    this.loadIndex(windowStage);
   }
 
   // 系统深浅色变化时实时刷新全局主题；“跟随系统”模式无需重启应用。
