@@ -132,6 +132,12 @@ jobs:
               echo "== $f"
               head -n 120 "$f"
             done
+            echo "### simulator crash reports"
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Logs" -type f -mmin -20 -print 2>/dev/null | tail -n 20
+            for f in $(find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Logs" -type f -mmin -20 \( -iname '*app*' -o -iname '*wuyin*' \) 2>/dev/null); do
+              echo "== $f"
+              head -n 100 "$f"
+            done
             echo "### unified log"
             xcrun simctl spawn "$UDID" log show --last 3m --style compact | grep -iE 'wuyin|arkui|StageApplication|StageVC|EntryAbility|com.wuyin.video' | tail -n 250 || true
           } > /tmp/crash.log 2>&1
