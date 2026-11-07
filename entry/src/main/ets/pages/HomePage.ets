@@ -1,4 +1,4 @@
-﻿import router from '@ohos.router';
+import router from '@ohos.router';
 import common from '@ohos.app.ability.common';
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
@@ -309,11 +309,14 @@ export struct HomePage {
     try {
       const statusInset: number = Number.isFinite(this.statusBarInset) ? Math.max(0, this.statusBarInset) : 24;
       const cutoutInset: number = Number.isFinite(this.topSafeInset) ? Math.max(0, this.topSafeInset) : 24;
+      // iOS 的 window.getWindowAvoidArea 目前返回 0，标题会被灵动岛/刘海遮住；
+      // 现代 iPhone 顶部安全区为 59~62vp，取 59vp 兜底，宁可多留一点。
+      const iosFallback: number = PlatformInfo.isIOS() ? 59 : 0;
       // 同一区域只取最大值，状态栏与挖孔不重复叠加。
-      return Math.max(statusInset, cutoutInset);
+      return Math.max(statusInset, cutoutInset, iosFallback);
     } catch (error) {
-      Logger.error('HomeBanner', '计算首页顶部安全内边距失败，使用 24vp：' + String(error));
-      return 24;
+      Logger.error('HomeBanner', '计算首页顶部安全内边距失败，使用 59vp：' + String(error));
+      return PlatformInfo.isIOS() ? 59 : 24;
     }
   }
   private onPageChanged(): void {
