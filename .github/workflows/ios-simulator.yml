@@ -47,6 +47,18 @@ jobs:
           cp -R /tmp/arkui-x-framework/arkui-x/engine/xcframework/arkui/ios-release/libarkui_ios.xcframework \
             .arkui-x/ios/frameworks/
 
+      - name: Download and link ArkUI-X plugin frameworks
+        run: |
+          set -euo pipefail
+          # 安卓端由 adapter jar 提供 @ohos.*，iOS 端是独立的动态 framework。
+          # 只链接 libarkui_ios 会让 net.http / file.fs / router / preferences
+          # 在运行时变成 undefined（首页加载失败、页面不跳转、设置页闪退）。
+          python3 scripts/prepare_ios_plugins.py \
+            --sdk-zip /tmp/arkui-x-macos-sdk.zip \
+            --arch-dir ios-x86_64-simulator \
+            --out "$PWD/build/ios-plugins" \
+            --xcconfig "$PWD/build/ios-plugins.xcconfig"
+
       - name: Build simulator app
         run: |
           set -euo pipefail
@@ -56,6 +68,7 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -arch x86_64 \
+            -xcconfig build/ios-plugins.xcconfig \
             CONFIGURATION_BUILD_DIR="$PWD/build/sim" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -64,6 +77,9 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             build
+          mkdir -p build/sim/app.app/Frameworks
+          cp -R build/ios-plugins/*.framework build/sim/app.app/Frameworks/
+          ls -1 build/sim/app.app/Frameworks | head -n 40
 
       - name: Run app in simulator
         run: |
@@ -82,7 +98,7 @@ jobs:
           xcrun simctl install "$UDID" build/sim/app.app
           DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
           if [ -n "$DATA" ]; then
-            for d in "$DATA/Documents" "$DATA/Library/files" "$DATA/Library/Application Support" "$DATA/tmp"; do
+            for d in "$DATA/Documents" "$DATA/Documents/files" "$DATA/Library/files" "$DATA/Library/Application Support" "$DATA/tmp"; do
               mkdir -p "$d"
               printf '1' > "$d/agreement_accepted.txt"
             done

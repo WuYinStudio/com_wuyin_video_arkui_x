@@ -25,6 +25,8 @@ FRAMEWORK="$IOS_DIR/frameworks/libarkui_ios.xcframework"
 ASSETS="$IOS_DIR/arkui-x"
 OUT="${IOS_OUT_DIR:-$ROOT/build/ios-unsigned}"
 CONFIG="${IOS_CONFIGURATION:-Release}"
+PLUGIN_DIR="${IOS_PLUGIN_DIR:-$ROOT/build/ios-plugins}"
+PLUGIN_XCCONFIG="${IOS_PLUGIN_XCCONFIG:-$ROOT/build/ios-plugins.xcconfig}"
 
 log() { printf '[ios-unsigned] %s\n' "$*"; }
 die() { printf '[ios-unsigned] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -48,12 +50,18 @@ mkdir -p "$OUT/Products" "$OUT/ipa"
 log "Xcode: $(xcodebuild -version | tr '\n' ' ')"
 log "Building $CONFIG for iphoneos (code signing disabled)..."
 
+XCCONFIG_ARGS=()
+if [[ -f "$PLUGIN_XCCONFIG" ]]; then
+  XCCONFIG_ARGS=(-xcconfig "$PLUGIN_XCCONFIG")
+fi
+
 set +e
 xcodebuild \
   -project "$PROJECT" \
   -target app \
   -configuration "$CONFIG" \
   -sdk iphoneos \
+  "${XCCONFIG_ARGS[@]}" \
   CONFIGURATION_BUILD_DIR="$OUT/Products" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
@@ -71,6 +79,13 @@ fi
 
 APP="$OUT/Products/app.app"
 [[ -d "$APP" ]] || die "Build succeeded but product not found: $APP"
+
+# 把 @ohos.* 插件动态库放进 app 的 Frameworks；应用内以 @rpath 解析。
+if [[ -d "$PLUGIN_DIR" ]]; then
+  mkdir -p "$APP/Frameworks"
+  cp -R "$PLUGIN_DIR"/*.framework "$APP/Frameworks/"
+  log "Embedded $(find "$APP/Frameworks" -maxdepth 1 -name '*.framework' | wc -l | tr -d ' ') plugin frameworks."
+fi
 
 mkdir -p "$OUT/ipa/Payload"
 ditto "$APP" "$OUT/ipa/Payload/app.app"

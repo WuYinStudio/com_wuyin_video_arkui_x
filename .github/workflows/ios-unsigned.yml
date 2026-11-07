@@ -66,6 +66,15 @@ jobs:
           cp -R /tmp/arkui-x-framework/arkui-x/engine/xcframework/arkui/ios-release/libarkui_ios.xcframework \
             .arkui-x/ios/frameworks/
 
+      - name: Prepare ArkUI-X plugin frameworks
+        run: |
+          set -euo pipefail
+          python3 scripts/prepare_ios_plugins.py \
+            --sdk-zip /tmp/arkui-x-macos-sdk.zip \
+            --arch-dir ios-arm64-release \
+            --out "$PWD/build/ios-plugins" \
+            --xcconfig "$PWD/build/ios-plugins.xcconfig"
+
       - name: Show Xcode
         run: xcodebuild -version
 
