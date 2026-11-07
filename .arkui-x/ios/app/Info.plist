@@ -49,6 +49,16 @@
 		<!-- 影视源大量使用 http 明文流；发布前应按域名收紧为 NSExceptionDomains。 -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>baofeng.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于搜索同一局域网内的协播设备</string>

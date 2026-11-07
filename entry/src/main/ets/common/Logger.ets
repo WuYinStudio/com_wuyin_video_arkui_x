@@ -1,5 +1,4 @@
 import fs from '@ohos.file.fs';
-import deviceInfo from '@ohos.deviceInfo';
 import { common } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 
@@ -27,7 +26,7 @@ export class Logger {
       }
       const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.APPEND);
       try {
-        fs.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ${deviceInfo.deviceType},${deviceInfo.displayVersion}\n`);
+        fs.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ios\n`);
       } finally { fs.closeSync(file); }
     } catch (error) { console.error('日志写入失败：' + String(error)); }
   }

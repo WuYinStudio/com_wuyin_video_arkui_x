@@ -588,7 +588,13 @@ export struct HomePage {
       request = http.createHttp();
       const response: http.HttpResponse = await request.request(this.homeAddress, {
         method: http.RequestMethod.GET, connectTimeout: 10000, readTimeout: 15000,
-          expectDataType: http.HttpDataType.STRING
+          expectDataType: http.HttpDataType.STRING,
+          usingCache: false,
+          header: {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+            'Accept': 'application/json,text/plain,*/*',
+            'Accept-Encoding': 'identity'
+          }
       });
       if (response.responseCode !== 200) {
         Logger.error('HomeModule', response.responseCode === 499 ? 'HTTP499 请求取消' :
@@ -638,13 +644,14 @@ export struct HomePage {
       }
       Logger.info('HomeModule', '首页数据加载完成');
       void this.cacheRemainingImages(banners, varieties, version);
-    } catch (_) {
-      Logger.error('HomeModule', '首页请求失败：可能为超时、网络异常或 JSON 解析错误');
-      Logger.error('HomeRecommendFix', '推荐请求失败：可能为超时、网络异常或数据错误');
-      Logger.error('HomeTabSwitch', '首页接口请求或解析失败');
+    } catch (error) {
+      const detail: string = String(error);
+      Logger.error('HomeModule', '首页请求失败：' + detail);
+      Logger.error('HomeRecommendFix', '推荐请求失败：' + detail);
+      Logger.error('HomeTabSwitch', '首页接口请求或解析失败：' + detail);
       if (this.pageAlive && version === this.requestVersion) {
-        this.bannerMessage = '轮播图加载失败，点击重试';
-        this.varietyMessage = '综艺加载失败，点击重试';
+        this.bannerMessage = '加载失败：' + detail;
+        this.varietyMessage = '加载失败：' + detail;
       }
     } finally {
       if (request) { request.destroy(); }
