@@ -1,6 +1,6 @@
-import { common } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+﻿import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import { Logger } from './Logger';
 
 export interface CoPlayInvitation {
@@ -146,14 +146,14 @@ export class CoPlayTransport {
     if (typeof invitation.videoJson !== 'string' || !invitation.videoJson) { throw new Error('协播缺少字符串 videoJson'); }
     const key: string = String(Date.now()) + '-' + util.generateRandomUUID(true);
     const path: string = context.cacheDir + '/' + CoPlayTransport.PREFIX + key + '.json';
-    const file: fileIo.File = fileIo.openSync(path,
-      fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+    const file: fs.File = fs.openSync(path,
+      fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
     try {
-      fileIo.writeSync(file.fd, invitation.videoJson);
-    } finally { fileIo.closeSync(file); }
+      fs.writeSync(file.fd, invitation.videoJson);
+    } finally { fs.closeSync(file); }
     // 回读确认完整，失败时绝不继续跳转或回退到超长 Want 传参。
-    if (fileIo.readTextSync(path) !== invitation.videoJson) {
-      try { fileIo.unlinkSync(path); } catch (_) {}
+    if (fs.readTextSync(path) !== invitation.videoJson) {
+      try { fs.unlinkSync(path); } catch (_) {}
       throw new Error('协播视频资料缓存不完整');
     }
     Logger.info('CO_PLAYBACK', '【CoPlay][Cache] 已保存完整 videoJson，长度=' + invitation.videoJson.length + '，缓存键=' + key);
@@ -174,7 +174,7 @@ export class CoPlayTransport {
     if (created > Date.now() + 60000 || Date.now() - created > CoPlayTransport.MAX_AGE_MS) {
       throw new Error('协播邀请缓存已过期，请重新分享');
     }
-    const value: string = fileIo.readTextSync(context.cacheDir + '/' + CoPlayTransport.PREFIX + key + '.json');
+    const value: string = fs.readTextSync(context.cacheDir + '/' + CoPlayTransport.PREFIX + key + '.json');
     if (!value) { throw new Error('协播视频资料缓存为空'); }
     Logger.info('CO_PLAYBACK', '【CoPlay][Cache] 页面恢复完整 videoJson，长度=' + value.length + '，缓存键=' + key);
     return value;
@@ -182,11 +182,11 @@ export class CoPlayTransport {
 
   private static cleanup(context: common.UIAbilityContext): void {
     try {
-      const names: string[] = fileIo.listFileSync(context.cacheDir);
+      const names: string[] = fs.listFileSync(context.cacheDir);
       names.forEach((name: string): void => {
         const match: RegExpExecArray | null = /^coplay-invite-(\d{13})-[A-Za-z0-9-]{32,36}\.json$/.exec(name);
         if (match && Date.now() - Number(match[1]) > CoPlayTransport.MAX_AGE_MS) {
-          try { fileIo.unlinkSync(context.cacheDir + '/' + name); }
+          try { fs.unlinkSync(context.cacheDir + '/' + name); }
           catch (_) { Logger.warn('CO_PLAYBACK', '【CoPlay][Cache] 清理过期邀请缓存失败'); }
         }
       });

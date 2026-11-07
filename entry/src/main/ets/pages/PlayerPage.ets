@@ -1,16 +1,21 @@
-﻿import { media } from '@kit.MediaKit';
-import { window, promptAction } from '@kit.ArkUI';
+﻿import media from '@ohos.multimedia.media';
+import window from '@ohos.window';
+import promptAction from '@ohos.promptAction';
 import router from '@ohos.router';
 import { PiPWindow } from '../common/PlatformPiP';
-import { preferences } from '@kit.ArkData';
-import { common, abilityAccessCtrl, bundleManager } from '@kit.AbilityKit';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
+import bundleManager from '@ohos.bundle.bundleManager';
 import { backgroundTaskManager, wantAgent } from '../common/PlatformBackground';
 import { NotificationService } from '../common/NotificationService';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
-import { image } from '@kit.ImageKit';
-import { connection, http } from '@kit.NetworkKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import util from '@ohos.util';
+import image from '@ohos.multimedia.image';
+import connection from '@ohos.net.connection';
+import http from '@ohos.net.http';
+import { BusinessError } from '@ohos.base';
 import { batteryInfo } from '../common/PlatformBattery';
 import { avSession } from '../common/PlatformAVSession';
 import { AppState, PlayerImmersiveConfig, RecordVideoSource } from '../common/AppState';
@@ -360,7 +365,7 @@ struct PlayerPage {
     }
   };
   // 本地文件句柄及合并缓存必须保留到 AVPlayer reset/release 完成。
-  private localSourceFile?: fileIo.File;
+  private localSourceFile?: fs.File;
   private preparedLocalPath: string = '';
   private sourceRequestVersion: number = 0;
   private sourceChangePending: boolean = false;
@@ -2059,11 +2064,11 @@ struct PlayerPage {
       return LocalPlaybackService.checkedPath(source, this.context());
     }
     private closeLocalSource(): void {
-      const opened: fileIo.File | undefined = this.localSourceFile;
+      const opened: fs.File | undefined = this.localSourceFile;
       const preparedPath: string = this.preparedLocalPath;
       this.localSourceFile = undefined;
       this.preparedLocalPath = '';
-      try { if (opened) { fileIo.closeSync(opened); } }
+      try { if (opened) { fs.closeSync(opened); } }
       catch (error) { Logger.warn('PLAYER_LOCAL', '关闭本地视频句柄失败，资源类型=local，路径=' + this.sourceLogPath(this.playbackSourcePath) + '：' + String(error)); }
       finally { LocalPlaybackService.cleanup(preparedPath); }
     }
@@ -2082,7 +2087,7 @@ struct PlayerPage {
         }
         // 普通文件与离线合并缓存分别使用共享的严格校验入口。
         // 实际读取验证可读性，并保留文件 API 的 401 错误码；不触发 URL 播放或远程鉴权。
-        const opened: fileIo.File = offlineManifest ?
+        const opened: fs.File = offlineManifest ?
           LocalPlaybackService.openPreparedFile(readablePath, this.context()) :
           LocalPlaybackService.openFile(localPath, this.context());
         this.localSourceFile = opened;
@@ -4330,16 +4335,16 @@ struct PlayerPage {
     try {
       const uris: string[] = await new picker.DocumentViewPicker(this.context()).select(new picker.DocumentSelectOptions());
       if (uris.length === 0) { this.danmakuStatus = '已取消文件导入'; return; }
-      const file = fileIo.openSync(uris[0], fileIo.OpenMode.READ_ONLY);
+      const file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
       let text: string = '';
       try {
-        const size: number = Number(fileIo.statSync(file.fd).size);
+        const size: number = Number(fs.statSync(file.fd).size);
         if (size <= 0 || size > 8 * 1024 * 1024) { throw new Error('文件为空或超过 8MB'); }
         const data: ArrayBuffer = new ArrayBuffer(size);
         let read: number = 0;
-        while (read < size) { const count: number = fileIo.readSync(file.fd, data, { offset: read, length: size - read }); if (count <= 0) { break; } read += count; }
+        while (read < size) { const count: number = fs.readSync(file.fd, data, { offset: read, length: size - read }); if (count <= 0) { break; } read += count; }
         text = new util.TextDecoder('utf-8').decodeWithStream(new Uint8Array(data, 0, read));
-      } finally { fileIo.closeSync(file); }
+      } finally { fs.closeSync(file); }
       const parsed: DanmakuItem[] = DanmakuService.parse(text);
       if (parsed.length === 0) { throw new Error('未识别到有效弹幕。支持 Bilibili XML、ASS、SRT 及逐行文本'); }
       this.danmakuItems = parsed; this.lastDanmakuWindowSecond = -1; this.refreshDanmakuWindow(this.currentMs, true); this.danmakuStatus = '已导入 ' + parsed.length + ' 条弹幕'; this.danmakuEnabled = true;

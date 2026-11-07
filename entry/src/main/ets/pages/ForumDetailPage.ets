@@ -1,5 +1,5 @@
 ﻿import router from '@ohos.router';
-import { pasteboard } from '@kit.BasicServicesKit';
+import pasteboard from '@ohos.pasteboard';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession, ForumPost, ForumReply } from '../common/CommunityApi';
 import { ForumCodec, ForumMedia } from '../common/ForumCodec';

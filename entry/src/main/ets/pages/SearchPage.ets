@@ -1,6 +1,6 @@
-﻿import { common } from '@kit.AbilityKit';
+﻿import common from '@ohos.app.ability.common';
 import router from '@ohos.router';
-import { http } from '@kit.NetworkKit';
+import http from '@ohos.net.http';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';

@@ -1,5 +1,5 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
 
 export class AppConfig {
   static readonly DEFAULT_BACKEND_DOMAIN: string = 'https://api.y11.top';

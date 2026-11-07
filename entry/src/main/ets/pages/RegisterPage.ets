@@ -1,7 +1,7 @@
-﻿import { http } from '@kit.NetworkKit';
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+﻿import http from '@ohos.net.http';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import window from '@ohos.window';
 import router from '@ohos.router';
 import { AppConfig } from '../common/AppConfig';
 import { Logger } from '../common/Logger';

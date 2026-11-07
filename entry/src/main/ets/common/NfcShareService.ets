@@ -1,5 +1,7 @@
-﻿import { common, bundleManager } from '@kit.AbilityKit';
-import { tag, nfcController } from '@kit.ConnectivityKit';
+﻿import common from '@ohos.app.ability.common';
+import bundleManager from '@ohos.bundle.bundleManager';
+import tag from '@ohos.nfc.tag';
+import nfcController from '@ohos.nfc.controller';
 import { SearchVideoItem } from '../pages/PlayerPage';
 import { ShareService } from './ShareService';
 import { Logger } from './Logger';

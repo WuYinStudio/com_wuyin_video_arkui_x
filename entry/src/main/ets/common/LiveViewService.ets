@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 import { PlatformBridge } from './PlatformBridge';
 import { PlatformInfo } from './PlatformInfo';
 

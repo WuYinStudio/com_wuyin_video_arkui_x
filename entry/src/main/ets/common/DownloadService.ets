@@ -1,10 +1,14 @@
-import { common, abilityAccessCtrl } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { request, BusinessError } from '@kit.BasicServicesKit';
-import { connection, http } from '@kit.NetworkKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
+import preferences from '@ohos.data.preferences';
+import request from '@ohos.request';
+import { BusinessError } from '@ohos.base';
+import connection from '@ohos.net.connection';
+import http from '@ohos.net.http';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
 import { storageStatistics } from './PlatformStorage';
-import { util } from '@kit.ArkTS';
+import util from '@ohos.util';
 import { AppState } from './AppState';
 import { Logger } from './Logger';
 
@@ -327,9 +331,9 @@ export class DownloadService {
       if (!Number.isFinite(free) || free < remaining + reserve) { throw new Error('可用存储空间不足，请清理空间后重试'); }
       const directory: string = DownloadService.directory();
       const probePath: string = directory + '/write_check_' + record.id;
-      const probe = fileIo.openSync(probePath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-      try { fileIo.writeSync(probe.fd, new ArrayBuffer(1)); }
-      finally { fileIo.closeSync(probe); if (fileIo.accessSync(probePath)) { fileIo.unlinkSync(probePath); } }
+      const probe = fs.openSync(probePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try { fs.writeSync(probe.fd, new ArrayBuffer(1)); }
+      finally { fs.closeSync(probe); if (fs.accessSync(probePath)) { fs.unlinkSync(probePath); } }
       Logger.debug('DOWNLOAD_STORAGE', '存储空间及私有目录写权限校验通过：' + record.id);
     } catch (error) { Logger.error('DOWNLOAD_STORAGE', String(error)); throw new Error('存储校验失败：' + String(error)); }
   }
@@ -474,8 +478,8 @@ export class DownloadService {
       const paused: boolean = record.state === DownloadState.PAUSED;
       if (record.mediaKind === 'hls') {
         const asset = record.assets[record.assetIndex];
-        if (!asset || !fileIo.accessSync(asset.localPath)) { throw new Error('下载分片未落盘，请重试'); }
-        const size: number = fileIo.statSync(asset.localPath).size;
+        if (!asset || !fs.accessSync(asset.localPath)) { throw new Error('下载分片未落盘，请重试'); }
+        const size: number = fs.statSync(asset.localPath).size;
         if (size <= 0) { throw new Error('下载分片为空，请重试'); }
         asset.completed = true; asset.receivedBytes = size; asset.totalBytes = size;
         DownloadService.tasks.delete(record.id); record.systemId = ''; record.nativeStarted = false;
@@ -485,7 +489,7 @@ export class DownloadService {
         else { record.state = paused ? DownloadState.PAUSED : DownloadState.QUEUED; record.message = paused ? '下载已暂停' : ''; DownloadService.changed(); }
       } else {
         if (!DownloadService.hasLocalFile(record)) { throw new Error('本地视频为空或不存在，请重试'); }
-        record.receivedBytes = fileIo.statSync(record.localPath).size;
+        record.receivedBytes = fs.statSync(record.localPath).size;
         record.totalBytes = record.receivedBytes; record.progressPercent = 100; record.speedBytes = 0;
         DownloadService.tasks.delete(record.id); DownloadService.samples.delete(record.id);
         record.state = DownloadState.COMPLETED; record.message = ''; record.updatedAt = Date.now(); DownloadService.changed();
@@ -497,9 +501,9 @@ export class DownloadService {
   private static async finishManifest(record: DownloadRecord): Promise<void> {
     try {
       if (!DownloadService.records.includes(record)) { return; }
-      const output = fileIo.openSync(record.localPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-      try { const data = new util.TextEncoder().encodeInto(record.manifest); fileIo.writeSync(output.fd, data.buffer); }
-      finally { fileIo.closeSync(output); }
+      const output = fs.openSync(record.localPath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try { const data = new util.TextEncoder().encodeInto(record.manifest); fs.writeSync(output.fd, data.buffer); }
+      finally { fs.closeSync(output); }
       if (!DownloadService.hasLocalFile(record)) { throw new Error('离线播放清单不完整，请重试'); }
       record.state = DownloadState.COMPLETED; record.progressPercent = 100; record.totalBytes = record.receivedBytes;
       DownloadService.samples.delete(record.id);
@@ -512,7 +516,7 @@ export class DownloadService {
     try {
       const host = DownloadService.host; if (!host) { throw new Error('下载目录不可用'); }
       const directory: string = host.filesDir + '/wuyin_media_downloads';
-      if (!fileIo.accessSync(directory)) { fileIo.mkdirSync(directory); }
+      if (!fs.accessSync(directory)) { fs.mkdirSync(directory); }
       return directory;
     } catch (error) { Logger.error('DOWNLOAD_DIRECTORY', String(error)); throw new Error(String(error)); }
   }
@@ -692,7 +696,7 @@ private static async parseManifest(record: DownloadRecord, address: string, text
   if (/#EXT-X-KEY:.*METHOD=(?!NONE(?:,|\s|$)|AES-128(?:,|\s|$))[^,\r\n]+/.test(text)) { throw new Error('当前视频使用受保护加密方式，无法离线下载'); }
   try {
     const assetDirectory: string = DownloadService.directory() + '/' + record.id + '_assets';
-    if (!fileIo.accessSync(assetDirectory)) { fileIo.mkdirSync(assetDirectory); }
+    if (!fs.accessSync(assetDirectory)) { fs.mkdirSync(assetDirectory); }
     const assets: DownloadAsset[] = []; const output: string[] = [];
     for (const original of lines) {
       const line: string = original.trim();
@@ -715,8 +719,8 @@ private static async parseManifest(record: DownloadRecord, address: string, text
     // 清单改变、分片重排或签名变化时保守重下，避免拼接不同版本的剧集。
     for (const asset of assets) {
       const saved = record.assets.find((item: DownloadAsset) => item.completed && item.sourceUrl === asset.sourceUrl && item.localPath === asset.localPath);
-      if (saved && fileIo.accessSync(saved.localPath)) {
-        const size: number = fileIo.statSync(saved.localPath).size;
+      if (saved && fs.accessSync(saved.localPath)) {
+        const size: number = fs.statSync(saved.localPath).size;
         if (size > 0 && size === saved.receivedBytes) { asset.completed = true; asset.receivedBytes = size; asset.totalBytes = size; }
       }
     }
@@ -798,7 +802,7 @@ static async resume(id: string): Promise<void> {
       record.systemId = ''; record.nativeStarted = false;
       if (record.mediaKind === 'hls') {
         for (const asset of record.assets) {
-          if (asset.completed && (!fileIo.accessSync(asset.localPath) || fileIo.statSync(asset.localPath).size <= 0)) { asset.completed = false; asset.receivedBytes = 0; asset.totalBytes = 0; }
+          if (asset.completed && (!fs.accessSync(asset.localPath) || fs.statSync(asset.localPath).size <= 0)) { asset.completed = false; asset.receivedBytes = 0; asset.totalBytes = 0; }
         }
         DownloadService.aggregate(record);
       } else {
@@ -825,9 +829,9 @@ static async remove(id: string): Promise<void> {
     await DownloadService.nativeCommand(id, async () => {
       if (record.systemId) { try { await request.agent.remove(record.systemId); } catch (error) { Logger.warn('DOWNLOAD_DELETE', '系统任务已不存在：' + id); } }
     });
-    if (fileIo.accessSync(record.localPath)) { fileIo.unlinkSync(record.localPath); }
+    if (fs.accessSync(record.localPath)) { fs.unlinkSync(record.localPath); }
     const directory: string = DownloadService.directory() + '/' + record.id + '_assets';
-    if (fileIo.accessSync(directory)) { fileIo.rmdirSync(directory); }
+    if (fs.accessSync(directory)) { fs.rmdirSync(directory); }
     Logger.info('DOWNLOAD_DELETE', '删除任务及本地文件：' + id);
   } catch (error) { Logger.error('DOWNLOAD_DELETE', String(error)); throw new Error(String(error)); }
   finally { DownloadService.changed(); void DownloadService.pump(); }
@@ -860,8 +864,8 @@ static async removeAll(): Promise<void> {
 static hasLocalFile(record: DownloadRecord): boolean {
   try {
     const host = DownloadService.host;
-    if (!host || !record.localPath.startsWith(host.filesDir + '/wuyin_media_downloads/') || !fileIo.accessSync(record.localPath) || fileIo.statSync(record.localPath).size <= 0) { return false; }
-    return record.mediaKind !== 'hls' || (record.assets.length > 0 && record.assets.every((asset: DownloadAsset) => asset.localPath.startsWith(host.filesDir + '/wuyin_media_downloads/') && fileIo.accessSync(asset.localPath) && fileIo.statSync(asset.localPath).size > 0));
+    if (!host || !record.localPath.startsWith(host.filesDir + '/wuyin_media_downloads/') || !fs.accessSync(record.localPath) || fs.statSync(record.localPath).size <= 0) { return false; }
+    return record.mediaKind !== 'hls' || (record.assets.length > 0 && record.assets.every((asset: DownloadAsset) => asset.localPath.startsWith(host.filesDir + '/wuyin_media_downloads/') && fs.accessSync(asset.localPath) && fs.statSync(asset.localPath).size > 0));
   } catch (error) { Logger.warn('DOWNLOAD_FILE', '检查本地视频失败：' + record.id); return false; }
 }
 
@@ -918,8 +922,8 @@ static async exportFile(context: common.UIAbilityContext): Promise<boolean> {
       archive.tasks.push(exported);
     }
     const data = new util.TextEncoder().encodeInto(JSON.stringify(archive));
-    const output = fileIo.openSync(selected[0], fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-    try { fileIo.writeSync(output.fd, data.buffer); } finally { fileIo.closeSync(output); }
+    const output = fs.openSync(selected[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    try { fs.writeSync(output.fd, data.buffer); } finally { fs.closeSync(output); }
     Logger.info('DOWNLOAD_EXPORT', '导出任务元数据，数量=' + archive.tasks.length); return true;
   } catch (error) { Logger.error('DOWNLOAD_EXPORT', String(error)); throw new Error(String(error)); }
 }
@@ -929,14 +933,14 @@ static async readImport(context: common.UIAbilityContext): Promise<DownloadRecor
   try {
     const document = new picker.DocumentViewPicker(context);
     const selected = await document.select({ fileSuffixFilters: ['下载任务|.json'] }); if (!selected.length) { return undefined; }
-    const input = fileIo.openSync(selected[0], fileIo.OpenMode.READ_ONLY); let text: string = '';
+    const input = fs.openSync(selected[0], fs.OpenMode.READ_ONLY); let text: string = '';
     try {
-      const size: number = fileIo.statSync(input.fd).size;
+      const size: number = fs.statSync(input.fd).size;
       if (size <= 0 || size > 8 * 1024 * 1024) { throw new Error('导入文件为空或超过 8MB'); }
-      const buffer = new ArrayBuffer(size); const count: number = fileIo.readSync(input.fd, buffer);
+      const buffer = new ArrayBuffer(size); const count: number = fs.readSync(input.fd, buffer);
       if (count !== size) { throw new Error('导入文件读取不完整'); }
       text = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeWithStream(new Uint8Array(buffer));
-    } finally { fileIo.closeSync(input); }
+    } finally { fs.closeSync(input); }
     const archive = JSON.parse(text) as DownloadArchive;
     if (archive.format !== 'wuyin-download-tasks' || archive.version !== 1) { throw new Error('不是受支持的无音影视下载任务文件'); }
     const records = DownloadService.validateRecords(archive.tasks);

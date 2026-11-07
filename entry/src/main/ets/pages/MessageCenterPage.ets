@@ -1,5 +1,5 @@
 ﻿import router from '@ohos.router';
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 import { AccountApi, ChatEntry, FollowEntry, LtsRoom } from '../common/AccountApi';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession } from '../common/CommunityApi';

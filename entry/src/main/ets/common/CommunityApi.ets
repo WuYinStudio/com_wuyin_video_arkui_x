@@ -1,5 +1,5 @@
-import { http } from '@kit.NetworkKit';
-import { preferences } from '@kit.ArkData';
+import http from '@ohos.net.http';
+import preferences from '@ohos.data.preferences';
 import { AppConfig } from './AppConfig';
 import { AppState } from './AppState';
 import { ForumCodec, ForumContent } from './ForumCodec';

@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
 import { Logger } from './Logger';
 
 export interface CoPlayCachedInvite {
@@ -65,11 +65,11 @@ export class CoPlayInviteHandoff {
 
   private static purgeExpired(context: common.UIAbilityContext): void {
     try {
-      const names: string[] = fileIo.listFileSync(context.cacheDir);
+      const names: string[] = fs.listFileSync(context.cacheDir);
       for (let index: number = 0; index < names.length; index++) {
         const match: RegExpExecArray | null = /^coplay_([0-9]{13,16})_[a-z0-9]{1,16}\.json$/.exec(names[index]);
         if (!match || Date.now() - Number(match[1]) <= CoPlayInviteHandoff.LIFETIME_MS) { continue; }
-        try { fileIo.unlinkSync(context.cacheDir + '/' + names[index]); }
+        try { fs.unlinkSync(context.cacheDir + '/' + names[index]); }
         catch (error) { Logger.warn('CO_PLAYBACK', '清理过期协播载荷失败：' + String(error)); }
       }
     } catch (error) { Logger.warn('CO_PLAYBACK', '检查过期协播载荷失败：' + String(error)); }
@@ -122,7 +122,7 @@ export class CoPlayInviteHandoff {
       }
       const part: string = content.substring(offset, end);
       const expected: number = CoPlayInviteHandoff.utf8Length(part);
-      const written: number = fileIo.writeSync(fd, part, { offset: byteOffset, encoding: 'utf-8' });
+      const written: number = fs.writeSync(fd, part, { offset: byteOffset, encoding: 'utf-8' });
       if (written !== expected) {
         Logger.error('CO_PLAYBACK', '【CoPlay][CachePut] 检测到载荷短写，字节偏移=' + byteOffset +
         '，预期字节数=' + expected + '，实际字节数=' + written);
@@ -141,16 +141,16 @@ export class CoPlayInviteHandoff {
     (++CoPlayInviteHandoff.cacheSequence).toString(36).slice(-6);
     const key: string = 'coplay_' + Date.now() + '_' + suffix;
     const path: string = CoPlayInviteHandoff.path(context, key);
-    let opened: fileIo.File | undefined;
+    let opened: fs.File | undefined;
     try {
       if (!content) { throw new Error('协播临时载荷为空'); }
       const before: CoPlayCachedInvite = CoPlayInviteHandoff.decodeCache(content);
-      opened = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      opened = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       const bytes: number = CoPlayInviteHandoff.writeComplete(opened.fd, content);
-      fileIo.closeSync(opened);
+      fs.closeSync(opened);
       opened = undefined;
       // 跳转前校验完整回读，短写或编码异常不能静默进入页面。
-      const restored: string = fileIo.readTextSync(path, { encoding: 'utf-8' });
+      const restored: string = fs.readTextSync(path, { encoding: 'utf-8' });
       if (restored !== content) { throw new Error('协播临时载荷写入不完整'); }
       const after: CoPlayCachedInvite = CoPlayInviteHandoff.decodeCache(restored);
       if (after.sessionId !== before.sessionId || after.videoJson !== before.videoJson) {
@@ -164,7 +164,7 @@ export class CoPlayInviteHandoff {
       return key;
     } catch (error) {
       if (opened) {
-        try { fileIo.closeSync(opened); }
+        try { fs.closeSync(opened); }
         catch (caught) { Logger.warn('CO_PLAYBACK', '关闭协播临时文件失败：' + String(caught)); }
       }
       CoPlayInviteHandoff.remove(context, key);
@@ -181,7 +181,7 @@ export class CoPlayInviteHandoff {
         CoPlayInviteHandoff.remove(context, key);
         throw new Error('协播邀请已过期，请重新分享');
       }
-      const content: string = fileIo.readTextSync(path, { encoding: 'utf-8' });
+      const content: string = fs.readTextSync(path, { encoding: 'utf-8' });
       const invite: CoPlayCachedInvite = CoPlayInviteHandoff.decodeCache(content);
       Logger.info('CO_PLAYBACK', '【CoPlay][CacheRead] 已恢复完整载荷，缓存键=' + key +
       '，字符总长=' + content.length + '，videoJson字符数=' + invite.videoJson.length +
@@ -197,7 +197,7 @@ export class CoPlayInviteHandoff {
   static remove(context: common.UIAbilityContext, key: string): void {
     try {
       const path: string = CoPlayInviteHandoff.path(context, key);
-      if (fileIo.accessSync(path)) { fileIo.unlinkSync(path); }
+      if (fs.accessSync(path)) { fs.unlinkSync(path); }
     } catch (error) { Logger.warn('CO_PLAYBACK', '清理协播临时载荷失败：' + String(error)); }
   }
 }

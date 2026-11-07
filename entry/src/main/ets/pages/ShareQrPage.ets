@@ -1,7 +1,8 @@
-﻿import { common } from '@kit.AbilityKit';
-import { image } from '@kit.ImageKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { window } from '@kit.ArkUI';
+﻿import common from '@ohos.app.ability.common';
+import image from '@ohos.multimedia.image';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import window from '@ohos.window';
 import router from '@ohos.router';
 import { AppState } from '../common/AppState';
 import { Logger } from '../common/Logger';
@@ -412,9 +413,9 @@ export struct ShareQrPage {
         for (let index: number = 0; index < limit; index++) {
           const buffer: ArrayBuffer = await packer.packing(pixels[index],
             { format: 'image/png', quality: 100 });
-          const file = fileIo.openSync(targets[index],
-            fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-          try { fileIo.writeSync(file.fd, buffer); } finally { fileIo.closeSync(file); }
+          const file = fs.openSync(targets[index],
+            fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+          try { fs.writeSync(file.fd, buffer); } finally { fs.closeSync(file); }
         }
       } finally {
         await packer.release();

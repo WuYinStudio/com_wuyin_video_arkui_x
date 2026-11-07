@@ -1,8 +1,8 @@
-﻿import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
-import { fileIo } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+﻿import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import http from '@ohos.net.http';
+import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import { Logger } from './Logger';
 
 /** 一次上传的结果；失败时带 HTTP 状态、「是否 404」和已经试过的每个图床的原因。 */
@@ -682,7 +682,7 @@ export class ImageHostService {
       const staged: string = useFilePath ? ImageHostService.stageFile(uri, extension) : '';
       stagedPath = staged;
       if (staged.length > 0) {
-        Logger.info('IMAGE_HOST', '文件已缓存：' + staged + '，' + String(fileIo.statSync(staged).size) + ' 字节');
+        Logger.info('IMAGE_HOST', '文件已缓存：' + staged + '，' + String(fs.statSync(staged).size) + ' 字节');
       } else {
         Logger.info('IMAGE_HOST', '未使用缓存文件，改用内存段');
       }
@@ -794,17 +794,17 @@ export class ImageHostService {
     if (context === undefined) { return ''; }
     const targetPath: string = context.cacheDir + '/upload_' + String(Date.now()) +
       String(Math.floor(Math.random() * 1000)) + extension;
-    let source: fileIo.File | undefined = undefined;
-    let out: fileIo.File | undefined = undefined;
+    let source: fs.File | undefined = undefined;
+    let out: fs.File | undefined = undefined;
     try {
       const bytes: ArrayBuffer = ImageHostService.readBytes(uri, ImageHostService.NAISHI_MAX_BYTES);
       if (bytes.byteLength === 0) { return ''; }
-      out = fileIo.openSync(targetPath,
-        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(out.fd, bytes);
-      fileIo.closeSync(out);
+      out = fs.openSync(targetPath,
+        fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      fs.writeSync(out.fd, bytes);
+      fs.closeSync(out);
       out = undefined;
-      const written: number = fileIo.statSync(targetPath).size;
+      const written: number = fs.statSync(targetPath).size;
       if (written !== bytes.byteLength) {
         Logger.warn('IMAGE_HOST', '缓存文件大小不一致：写入 ' + String(written) + '，期望 ' + String(bytes.byteLength));
         ImageHostService.dropStaged(targetPath);
@@ -817,10 +817,10 @@ export class ImageHostService {
       return '';
     } finally {
       if (source !== undefined) {
-        try { fileIo.closeSync(source); } catch (_) { /* 忽略 */ }
+        try { fs.closeSync(source); } catch (_) { /* 忽略 */ }
       }
       if (out !== undefined) {
-        try { fileIo.closeSync(out); } catch (_) { /* 忽略 */ }
+        try { fs.closeSync(out); } catch (_) { /* 忽略 */ }
       }
     }
   }
@@ -954,7 +954,7 @@ export class ImageHostService {
 
   private static dropStaged(path: string): void {
     if (path.length === 0) { return; }
-    try { fileIo.unlinkSync(path); } catch (_) { /* 忽略 */ }
+    try { fs.unlinkSync(path); } catch (_) { /* 忽略 */ }
   }
 
   /** 服务端把文件判成空（Chevereto 的 "Empty upload source"）。 */
@@ -1221,7 +1221,7 @@ export class ImageHostService {
   /** 文件大小；读不到（媒体 URI 不支持 stat）返回 -1。 */
   private static sizeOf(uri: string): number {
     try {
-      const stat: fileIo.Stat = fileIo.statSync(uri);
+      const stat: fs.Stat = fs.statSync(uri);
       const size: number = stat.size;
       return Number.isFinite(size) && size > 0 ? size : 0;
     } catch (_) {
@@ -1232,15 +1232,15 @@ export class ImageHostService {
   /** 只读文件头若干字节，用于识别真实类型。 */
   private static headBytes(uri: string, length: number): ArrayBuffer {
     const buffer: ArrayBuffer = new ArrayBuffer(length);
-    let file: fileIo.File | undefined = undefined;
+    let file: fs.File | undefined = undefined;
     try {
-      file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
-      fileIo.readSync(file.fd, buffer, { offset: 0, length: length });
+      file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      fs.readSync(file.fd, buffer, { offset: 0, length: length });
     } catch (_) {
       // 读不到文件头就只按扩展名判断
     } finally {
       if (file !== undefined) {
-        try { fileIo.closeSync(file); } catch (_) { /* 忽略关闭错误 */ }
+        try { fs.closeSync(file); } catch (_) { /* 忽略关闭错误 */ }
       }
     }
     return buffer;
@@ -1248,11 +1248,11 @@ export class ImageHostService {
 
   /** 把文件内容读进已有缓冲区的指定区间，避免为大文件再复制一份。 */
   private static readInto(uri: string, buffer: ArrayBuffer, start: number, length: number): void {
-    const file: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     try {
       let read: number = 0;
       while (read < length) {
-        const received: number = fileIo.readSync(file.fd, buffer, {
+        const received: number = fs.readSync(file.fd, buffer, {
           offset: start + read,
           length: length - read
         });
@@ -1260,7 +1260,7 @@ export class ImageHostService {
         read += received;
       }
     } finally {
-      try { fileIo.closeSync(file); } catch (_) { /* 关闭失败不影响结果 */ }
+      try { fs.closeSync(file); } catch (_) { /* 关闭失败不影响结果 */ }
     }
   }
 
@@ -1272,12 +1272,12 @@ export class ImageHostService {
   }
 
   private static readBytes(uri: string, maxBytes: number): ArrayBuffer {
-    const file: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     try {
       let buffer: ArrayBuffer = new ArrayBuffer(256 * 1024);
       let total: number = 0;
       while (total < buffer.byteLength) {
-        const received: number = fileIo.readSync(file.fd, buffer, {
+        const received: number = fs.readSync(file.fd, buffer, {
           offset: total,
           length: buffer.byteLength - total
         });
@@ -1294,7 +1294,7 @@ export class ImageHostService {
       }
       return buffer.slice(0, total);
     } finally {
-      try { fileIo.closeSync(file); } catch (_) { /* 关闭失败不影响结果 */ }
+      try { fs.closeSync(file); } catch (_) { /* 关闭失败不影响结果 */ }
     }
   }
 

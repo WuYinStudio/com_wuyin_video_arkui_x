@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 import { AgreementService } from '../common/AgreementService';
 import { LegalText } from '../common/LegalText';
 import { Logger } from '../common/Logger';

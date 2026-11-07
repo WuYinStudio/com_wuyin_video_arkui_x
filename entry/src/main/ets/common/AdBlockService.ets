@@ -1,9 +1,10 @@
-import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { fileIo } from '@kit.CoreFileKit';
-import { http, socket } from '@kit.NetworkKit';
-import { util } from '@kit.ArkTS';
-import { BusinessError } from '@kit.BasicServicesKit';
+﻿import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
+import fs from '@ohos.file.fs';
+import http from '@ohos.net.http';
+import socket from '@ohos.net.socket';
+import util from '@ohos.util';
+import { BusinessError } from '@ohos.base';
 import { Logger } from './Logger';
 import { asSocketLike } from './PlatformSocketLike';
 
@@ -759,8 +760,8 @@ export class AdBlockService {
       return;
     }
     try {
-      if (!fileIo.accessSync(AdBlockService.cacheDir)) {
-        fileIo.mkdirSync(AdBlockService.cacheDir);
+      if (!fs.accessSync(AdBlockService.cacheDir)) {
+        fs.mkdirSync(AdBlockService.cacheDir);
       }
     } catch (error) {
       Logger.warn('AD_BLOCK', '创建 HLS 缓存目录失败：' + String(error));
@@ -772,11 +773,11 @@ export class AdBlockService {
       return;
     }
     try {
-      const names: string[] = fileIo.listFileSync(AdBlockService.cacheDir);
+      const names: string[] = fs.listFileSync(AdBlockService.cacheDir);
       let total: number = 0;
       for (const name of names) {
         try {
-          total += Number(fileIo.statSync(AdBlockService.cacheDir + '/' + name).size);
+          total += Number(fs.statSync(AdBlockService.cacheDir + '/' + name).size);
         } catch (error) {
           Logger.warn('AD_BLOCK', '统计缓存文件失败：' + String(error));
         }
@@ -795,10 +796,10 @@ export class AdBlockService {
     }
     try {
       const files: CacheFileInfo[] = [];
-      const names: string[] = fileIo.listFileSync(AdBlockService.cacheDir);
+      const names: string[] = fs.listFileSync(AdBlockService.cacheDir);
       for (const name of names) {
         try {
-          const info = fileIo.statSync(AdBlockService.cacheDir + '/' + name);
+          const info = fs.statSync(AdBlockService.cacheDir + '/' + name);
           const entry: CacheFileInfo = new CacheFileInfo();
           entry.name = name;
           entry.size = Number(info.size);
@@ -815,7 +816,7 @@ export class AdBlockService {
           break;
         }
         try {
-          fileIo.unlinkSync(AdBlockService.cacheDir + '/' + file.name);
+          fs.unlinkSync(AdBlockService.cacheDir + '/' + file.name);
           AdBlockService.cacheBytes -= file.size;
         } catch (error) {
           Logger.warn('AD_BLOCK', '删除缓存文件失败：' + String(error));
@@ -843,7 +844,7 @@ export class AdBlockService {
 
   private static fileExists(path: string): boolean {
     try {
-      return fileIo.accessSync(path);
+      return fs.accessSync(path);
     } catch (error) {
       return false;
     }
@@ -851,19 +852,19 @@ export class AdBlockService {
 
   private static readFile(path: string): ArrayBuffer | undefined {
     try {
-      const stat = fileIo.statSync(path);
+      const stat = fs.statSync(path);
       const size: number = Number(stat.size);
       if (!Number.isFinite(size) || size <= 0) {
         return undefined;
       }
       const target: Uint8Array = new Uint8Array(size);
-      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
       try {
         let position: number = 0;
         while (position < size) {
           const remaining: number = size - position;
           const chunk: ArrayBuffer = new ArrayBuffer(remaining);
-          const read: number = fileIo.readSync(file.fd, chunk, { length: remaining });
+          const read: number = fs.readSync(file.fd, chunk, { length: remaining });
           if (read <= 0) {
             break;
           }
@@ -877,7 +878,7 @@ export class AdBlockService {
         new Uint8Array(result).set(target.subarray(0, position), 0);
         return result;
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
     } catch (error) {
       Logger.warn('AD_BLOCK', '读取分片缓存失败：' + String(error));
@@ -895,15 +896,15 @@ export class AdBlockService {
     }
     const temp: string = path + '.tmp' + String(Date.now()) + String(Math.floor(Math.random() * 1000));
     try {
-      const file = fileIo.openSync(temp,
-        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const file = fs.openSync(temp,
+        fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       try {
-        fileIo.writeSync(file.fd, bytes);
+        fs.writeSync(file.fd, bytes);
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       // 先写临时文件再改名，避免并发请求读到写了一半的分片。
-      fileIo.renameSync(temp, path);
+      fs.renameSync(temp, path);
       AdBlockService.cacheBytes += bytes.byteLength;
       if (AdBlockService.cacheBytes > AdBlockService.MAX_CACHE_BYTES) {
         AdBlockService.pruneCache();
@@ -912,7 +913,7 @@ export class AdBlockService {
       Logger.warn('AD_BLOCK', '写入分片缓存失败：' + String(error));
       try {
         if (AdBlockService.fileExists(temp)) {
-          fileIo.unlinkSync(temp);
+          fs.unlinkSync(temp);
         }
       } catch (caught) {
         Logger.warn('AD_BLOCK', '清理临时缓存文件失败：' + String(caught));

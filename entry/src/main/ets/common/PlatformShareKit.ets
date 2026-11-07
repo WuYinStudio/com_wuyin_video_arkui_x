@@ -1,5 +1,6 @@
-import { common, Want } from '@kit.AbilityKit';
-import { image } from '@kit.ImageKit';
+import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
+import image from '@ohos.multimedia.image';
 import { PlatformBridge } from './PlatformBridge';
 
 /**

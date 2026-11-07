@@ -1,16 +1,17 @@
-﻿import { common } from '@kit.AbilityKit';
+﻿import common from '@ohos.app.ability.common';
 import { common2D, effectKit } from '@kit.ArkGraphics2D';
 import { FestivalTheme } from './FestivalTheme';
 import { systemShare } from './PlatformShareKit';
-import { promptAction, window } from '@kit.ArkUI';
+import promptAction from '@ohos.promptAction';
+import window from '@ohos.window';
 import router from '@ohos.router';
 import { generateBarcode, scanCore } from './PlatformScanKit';
-import { pasteboard } from '@kit.BasicServicesKit';
-import { fileIo } from '@kit.CoreFileKit';
+import pasteboard from '@ohos.pasteboard';
+import fs from '@ohos.file.fs';
 import { fileUri } from './PlatformFileUri';
-import { http } from '@kit.NetworkKit';
-import { uniformTypeDescriptor } from '@kit.ArkData';
-import { image } from '@kit.ImageKit';
+import http from '@ohos.net.http';
+import uniformTypeDescriptor from '@ohos.data.uniformTypeDescriptor';
+import image from '@ohos.multimedia.image';
 import { SearchVideoItem } from '../pages/PlayerPage';
 import { Logger } from './Logger';
 import { PlatformBridge } from './PlatformBridge';
@@ -717,14 +718,14 @@ export class ShareService {
     try {
       const buffer: ArrayBuffer = await packer.packing(pixels, { format: 'image/png', quality: 100 });
       const dir: string = context.cacheDir + '/share';
-      try { fileIo.mkdirSync(dir); } catch (_) { /* 已存在 */ }
+      try { fs.mkdirSync(dir); } catch (_) { /* 已存在 */ }
       const path: string = dir + '/' + ShareService.posterFileName(title);
-      const file: fileIo.File = fileIo.openSync(path,
-        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const file: fs.File = fs.openSync(path,
+        fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       try {
-        fileIo.writeSync(file.fd, buffer);
+        fs.writeSync(file.fd, buffer);
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       Logger.info('SHARE', '分享图片已保存：' + path);
       return path;

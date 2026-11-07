@@ -1,9 +1,9 @@
 ﻿import { UIAbility, Want, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import window from '@ohos.window';
 import router from '@ohos.router';
-import { BusinessError } from '@kit.BasicServicesKit';
-import { fileIo } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+import { BusinessError } from '@ohos.base';
+import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import { Logger } from '../common/Logger';
 
 import { AppConfig } from '../common/AppConfig';
@@ -558,14 +558,14 @@ export default class EntryAbility extends UIAbility {
 
   private async readCoPlayTextFile(uri: string): Promise<string> {
     if (!uri || !/\.txt(?:[?#].*)?$/i.test(uri)) { throw new Error('不是协播同步分享 TXT 文件'); }
-    let input: fileIo.File | undefined;
+    let input: fs.File | undefined;
     try {
       // Harmony 文档/文件分享通常将可读文件 URI 放在 Want.uri；沿用项目已使用的 fileIo URI 读取方式。
-      input = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
-      const size: number = fileIo.statSync(input.fd).size;
+      input = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      const size: number = fs.statSync(input.fd).size;
       if (size <= 0 || size > 2 * 1024 * 1024) { throw new Error('协播 TXT 文件为空或超过 2MB'); }
       const buffer = new ArrayBuffer(size);
-      const count: number = fileIo.readSync(input.fd, buffer);
+      const count: number = fs.readSync(input.fd, buffer);
       if (count !== size) { throw new Error('协播 TXT 文件读取不完整'); }
       const raw: string = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeWithStream(new Uint8Array(buffer)).replace(/^\uFEFF/, '').trim();
       if (!raw) { throw new Error('协播 TXT 文件内容为空'); }
@@ -575,7 +575,7 @@ export default class EntryAbility extends UIAbility {
       Logger.error('MEDIA_SESSION', '读取外部协播 TXT 文件失败：' + String(error));
       throw new Error('无法读取协播 TXT 文件，请从文件管理器通过“打开方式”重新选择无音影视');
     } finally {
-      if (input) { try { fileIo.closeSync(input); } catch (_) { /* 文件可能已由系统关闭 */ } }
+      if (input) { try { fs.closeSync(input); } catch (_) { /* 文件可能已由系统关闭 */ } }
     }
   }
 

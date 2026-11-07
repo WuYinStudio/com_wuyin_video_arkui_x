@@ -1,6 +1,6 @@
-﻿import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
+﻿import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
 import { Logger } from './Logger';
 
 /** 一条本地语音记录。 */
@@ -36,7 +36,7 @@ export class VoiceStore {
   static async init(context: common.UIAbilityContext): Promise<void> {
     VoiceStore.dir = context.filesDir + '/voice';
     try {
-      fileIo.mkdirSync(VoiceStore.dir);
+      fs.mkdirSync(VoiceStore.dir);
     } catch (_) {
       // 已存在就忽略
     }
@@ -62,7 +62,7 @@ export class VoiceStore {
     const items: VoiceFile[] = [];
     if (VoiceStore.dir.length === 0) { return items; }
     try {
-      const names: string[] = fileIo.listFileSync(VoiceStore.dir);
+      const names: string[] = fs.listFileSync(VoiceStore.dir);
       for (const name of names) {
         if (!name.startsWith('voice_')) { continue; }
         // 语音文件是 mp4（音频型），同时兼容早期录出的 mp3。
@@ -70,7 +70,7 @@ export class VoiceStore {
         if (!lower.endsWith('.wav') && !lower.endsWith('.mp4') && !lower.endsWith('.mp3')) { continue; }
         const path: string = VoiceStore.dir + '/' + name;
         try {
-          const stat: fileIo.Stat = fileIo.statSync(path);
+          const stat: fs.Stat = fs.statSync(path);
           const item: VoiceFile = new VoiceFile();
           item.name = name;
           item.path = path;
@@ -104,7 +104,7 @@ export class VoiceStore {
     const target: string = path.replace(/\.[A-Za-z0-9]+$/, '.mp4');
     if (target === path) { return path; }
     try {
-      fileIo.copyFileSync(path, target);
+      fs.copyFileSync(path, target);
       Logger.info('CHAT_VOICE', '上传副本已生成：' + target);
       return target;
     } catch (error) {
@@ -116,7 +116,7 @@ export class VoiceStore {
   static deleteFile(name: string): void {
     if (VoiceStore.dir.length === 0 || name.length === 0) { return; }
     try {
-      fileIo.unlinkSync(VoiceStore.dir + '/' + name);
+      fs.unlinkSync(VoiceStore.dir + '/' + name);
     } catch (error) {
       Logger.warn('CHAT_VOICE', '删除语音失败：' + String(error));
     }

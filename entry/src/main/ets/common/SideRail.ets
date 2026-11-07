@@ -1,7 +1,7 @@
 ﻿import router from '@ohos.router';
-import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { image } from '@kit.ImageKit';
+import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
+import image from '@ohos.multimedia.image';
 import { AppState } from './AppState';
 import { CommunityApi, CommunitySession } from './CommunityApi';
 import { NavTabs } from './NavTabs';

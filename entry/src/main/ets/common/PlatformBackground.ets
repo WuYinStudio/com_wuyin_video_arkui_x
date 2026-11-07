@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 
 /** WantAgent 跨平台占位：Android / iOS 由原生后台服务接管。 */
 export namespace wantAgent {

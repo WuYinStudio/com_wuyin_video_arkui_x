@@ -1,5 +1,5 @@
-import { Theme } from '@kit.ArkUI';
-import { http } from '@kit.NetworkKit';
+import { Theme } from '@ohos.arkui.theme';
+import http from '@ohos.net.http';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';

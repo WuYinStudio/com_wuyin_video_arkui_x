@@ -1,6 +1,6 @@
-import { http } from '@kit.NetworkKit';
-import { common } from '@kit.AbilityKit';
-import { request } from '@kit.BasicServicesKit';
+import http from '@ohos.net.http';
+import common from '@ohos.app.ability.common';
+import request from '@ohos.request';
 import { AppConfig } from './AppConfig';
 import { ApiRequestOptions } from './CommunityApi';
 import { Logger } from './Logger';

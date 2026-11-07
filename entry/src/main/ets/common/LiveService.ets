@@ -1,8 +1,9 @@
-﻿import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { http } from '@kit.NetworkKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+﻿import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
+import http from '@ohos.net.http';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import util from '@ohos.util';
 import { AppState } from './AppState';
 import { Logger } from './Logger';
 
@@ -85,22 +86,22 @@ export class LiveService {
     const paths: string[] = await new picker.DocumentViewPicker(context).select(new picker.DocumentSelectOptions());
     if (paths.length === 0) { return 0; }
     const filename: string = decodeURIComponent(paths[0].split('/').pop() || '').split('?')[0];
-    const file: fileIo.File = fileIo.openSync(paths[0], fileIo.OpenMode.READ_ONLY);
+    const file: fs.File = fs.openSync(paths[0], fs.OpenMode.READ_ONLY);
     let text: string = '';
     try {
-      const size: number = Number(fileIo.statSync(file.fd).size);
+      const size: number = Number(fs.statSync(file.fd).size);
       if (size <= 0) { throw new Error('文件为空'); }
       if (size > 8 * 1024 * 1024) { throw new Error('文件超过 8MB，请换小一点的源文件'); }
       const data: ArrayBuffer = new ArrayBuffer(size);
       let read: number = 0;
       while (read < size) {
-        const chunk: number = fileIo.readSync(file.fd, data, { offset: read, length: size - read });
+        const chunk: number = fs.readSync(file.fd, data, { offset: read, length: size - read });
         if (chunk <= 0) { throw new Error('文件读取不完整'); }
         read += chunk;
       }
       text = new util.TextDecoder('utf-8').decodeWithStream(new Uint8Array(data));
     } finally {
-      fileIo.closeSync(file);
+      fs.closeSync(file);
     }
     return LiveService.apply(text, filename);
   }

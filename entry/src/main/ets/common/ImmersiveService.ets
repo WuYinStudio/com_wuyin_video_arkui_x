@@ -1,4 +1,4 @@
-import { window } from '@kit.ArkUI';
+import window from '@ohos.window';
 import { Logger } from './Logger';
 
 // 与 AppState 和页面 @StorageLink 使用相同的字段，避免以 Object 丢失配置类型。

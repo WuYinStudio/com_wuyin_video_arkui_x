@@ -9,8 +9,8 @@ PropagateID: '10f41559-e350-40e8-bb7d-586706c2db8a'
 ReservedCode2: ''
 */
 // 内容由 AI 生成，请仔细甄别（AI）
-import { common } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
+import common from '@ohos.app.ability.common';
+import promptAction from '@ohos.promptAction';
 import router from '@ohos.router';
 import { AgreementService } from '../common/AgreementService';
 import { AppState } from '../common/AppState';

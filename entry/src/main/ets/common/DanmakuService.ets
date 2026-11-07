@@ -1,8 +1,8 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
-import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { util } from '@kit.ArkTS';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import http from '@ohos.net.http';
+import cryptoFramework from '@ohos.security.cryptoFramework';
+import util from '@ohos.util';
 
 export interface DanmakuItem {
   id: string;

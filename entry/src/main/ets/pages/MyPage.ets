@@ -1,6 +1,8 @@
-﻿import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
+﻿import common from '@ohos.app.ability.common';
+import abilityAccessCtrl, { Permissions } from '@ohos.abilityAccessCtrl';
 import router from '@ohos.router';
-import { preferences, uniformTypeDescriptor } from '@kit.ArkData';
+import preferences from '@ohos.data.preferences';
+import uniformTypeDescriptor from '@ohos.data.uniformTypeDescriptor';
 import { systemShare } from '../common/PlatformShareKit';
 import { AppConfig } from '../common/AppConfig';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
@@ -12,7 +14,8 @@ import { Logger } from '../common/Logger';
 import { NavigationScroll } from '../common/NavigationScroll';
 import { Ui } from '../common/Ui';
 import { AuroraBackdrop, GhostButton, GlassIconButton, PrimaryButton, SectionHeader } from '../common/UiWidgets';
-import { fileIo, picker } from '@kit.CoreFileKit';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
 
 export interface UserInfo {
   userId: string;
@@ -1050,11 +1053,11 @@ export struct MyPage {
   /** 把相册 URI 拷进应用缓存目录，返回真实文件路径（上传用）。 */
   private copyUriToCache(context: common.UIAbilityContext, uri: string): string {
     const target: string = context.cacheDir + '/avatar_' + String(Date.now()) + '.jpg';
-    const source: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    const source: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     try {
-      fileIo.copyFileSync(source.fd, target);
+      fs.copyFileSync(source.fd, target);
     } finally {
-      fileIo.closeSync(source);
+      fs.closeSync(source);
     }
     Logger.info('MY_PAGE', '头像已缓存：' + target);
     return target;

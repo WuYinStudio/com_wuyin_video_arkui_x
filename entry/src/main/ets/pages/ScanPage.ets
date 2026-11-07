@@ -1,7 +1,8 @@
 ﻿import { detectBarcode, scanBarcode, scanCore } from '../common/PlatformScanKit';
 import router from '@ohos.router';
-import { abilityAccessCtrl, common, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
-import { picker } from '@kit.CoreFileKit';
+import common from '@ohos.app.ability.common';
+import abilityAccessCtrl, { Permissions, PermissionRequestResult } from '@ohos.abilityAccessCtrl';
+import picker from '@ohos.file.picker';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { PlatformInfo } from '../common/PlatformInfo';

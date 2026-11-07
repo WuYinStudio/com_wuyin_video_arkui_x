@@ -1,7 +1,7 @@
 ﻿import router from '@ohos.router';
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 import http from '@ohos.net.http';
-import { fileIo } from '@kit.CoreFileKit';
+import fs from '@ohos.file.fs';
 import { AppState, Film, PlayerImmersiveConfig } from '../common/AppState';
 import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
@@ -513,13 +513,13 @@ export struct HomePage {
       const directory: string = this.cacheDirectory();
       path = directory + '/' + this.imageCacheKey(address, kind, index) + '.jpg';
       try {
-        if (fileIo.accessSync(path) && fileIo.statSync(path).size > 0) { return 'file://' + path; }
+        if (fs.accessSync(path) && fs.statSync(path).size > 0) { return 'file://' + path; }
       } catch (_) { Logger.info('HomeModule', '图片缓存未命中 ' + kind + '_' + index); }
       try {
-        if (!fileIo.accessSync(directory)) { fileIo.mkdirSync(directory, true); }
+        if (!fs.accessSync(directory)) { fs.mkdirSync(directory, true); }
       } catch (_) {
         // accessSync 在目录不存在时可能抛错；递归创建仍在外层异常保护中。
-        fileIo.mkdirSync(directory, true);
+        fs.mkdirSync(directory, true);
       }
       request = http.createHttp();
       const response: http.HttpResponse = await request.request(address, {
@@ -532,8 +532,8 @@ export struct HomePage {
       }
       const bytes: ArrayBuffer = response.result as ArrayBuffer;
       if (!bytes.byteLength) { throw new Error('空图片'); }
-      const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-      try { fileIo.writeSync(file.fd, bytes); } finally { fileIo.closeSync(file); }
+      const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try { fs.writeSync(file.fd, bytes); } finally { fs.closeSync(file); }
       return 'file://' + path;
     } catch (_) {
       // 图片链接可能带签名参数，不记录完整链接或异常对象。

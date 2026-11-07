@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
+import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
 import { Logger } from './Logger';
 
 /**

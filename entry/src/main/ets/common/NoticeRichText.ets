@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { media } from '@kit.MediaKit';
+import common from '@ohos.app.ability.common';
+import media from '@ohos.multimedia.media';
 import { ArkCard, parseArkCard } from './ArkCard';
 import { ChatCardMessage, parseXmlCard, XmlCard } from '../components/ChatCardMessage';
 import { PlatformLinks } from './PlatformLinks';

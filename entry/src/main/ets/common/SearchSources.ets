@@ -1,8 +1,9 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+﻿import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import http from '@ohos.net.http';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import util from '@ohos.util';
 import { AppState } from './AppState';
 import { Logger } from './Logger';
 
@@ -461,18 +462,18 @@ export class SearchSources {
       }, null, 2);
       const encoded: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(text);
       // Picker 返回的是 file:// URI；直接写入目标文件，避免 copyFile 对 URI 支持不一致导致空文件。
-      const file = fileIo.openSync(targets[0],
-        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const file = fs.openSync(targets[0],
+        fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       try {
         let written: number = 0;
         while (written < encoded.byteLength) {
           const chunk: Uint8Array = encoded.slice(written);
-          const count: number = fileIo.writeSync(file.fd, chunk.buffer);
+          const count: number = fs.writeSync(file.fd, chunk.buffer);
           if (count <= 0) { throw new Error('线路文件写入不完整'); }
           written += count;
         }
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       Logger.info('SearchEngineLoad', '已导出启用线路 ' + String(enabled.length) +
         ' 条，文件=' + targets[0] + '，字节=' + String(encoded.byteLength));
@@ -514,20 +515,20 @@ export class SearchSources {
       if (paths.length === 0) { return false; }
       const filename: string = decodeURIComponent(paths[0].split('/').pop() || '').split('?')[0];
       if (filename !== SearchSources.IMPORT_FILENAME) { throw new Error('文件名必须为' + SearchSources.IMPORT_FILENAME); }
-      const file = fileIo.openSync(paths[0], fileIo.OpenMode.READ_ONLY);
+      const file = fs.openSync(paths[0], fs.OpenMode.READ_ONLY);
       let text: string = '';
       try {
-        const size: number = Number(fileIo.statSync(file.fd).size);
+        const size: number = Number(fs.statSync(file.fd).size);
         if (size <= 0 || size > 5 * 1024 * 1024) { throw new Error('文件为空或超过 5MB'); }
         const data: ArrayBuffer = new ArrayBuffer(size);
         let count: number = 0;
         while (count < size) {
-          const chunk: number = fileIo.readSync(file.fd, data, { offset: count, length: size - count });
+          const chunk: number = fs.readSync(file.fd, data, { offset: count, length: size - count });
           if (chunk <= 0) { throw new Error('文件内容读取不完整'); }
           count += chunk;
         }
         text = new util.TextDecoder('utf-8').decodeWithStream(new Uint8Array(data));
-      } finally { fileIo.closeSync(file); }
+      } finally { fs.closeSync(file); }
       const incoming: SearchSource[] = SearchSources.parse(text, '本地导入');
       if (incoming.length === 0) { throw new Error('文件中没有有效的搜索源'); }
       const merged: Map<number, SearchSource> = new Map<number, SearchSource>();

@@ -1,5 +1,5 @@
-import { util } from '@kit.ArkTS';
-import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import util from '@ohos.util';
+import cryptoFramework from '@ohos.security.cryptoFramework';
 import { Logger } from './Logger';
 
 /**

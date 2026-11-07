@@ -1,7 +1,7 @@
-import { common } from '@kit.AbilityKit';
-import { uiObserver } from '@kit.ArkUI';
-import { preferences } from '@kit.ArkData';
-import { fileIo, picker } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
 import { fileUri } from './PlatformFileUri';
 import { FrameRateService } from './FrameRateService';
 import { Logger } from './Logger';
@@ -440,7 +440,7 @@ export class WallpaperService {
 
   private static fileExists(path: string): boolean {
     try {
-      return fileIo.accessSync(path);
+      return fs.accessSync(path);
     } catch (error) {
       return false;
     }
@@ -451,8 +451,8 @@ export class WallpaperService {
       return;
     }
     try {
-      if (!fileIo.accessSync(WallpaperService.baseDir)) {
-        fileIo.mkdirSync(WallpaperService.baseDir);
+      if (!fs.accessSync(WallpaperService.baseDir)) {
+        fs.mkdirSync(WallpaperService.baseDir);
       }
     } catch (error) {
       Logger.error('WALLPAPER_MEDIA', '创建背景目录失败：' + String(error));
@@ -475,18 +475,18 @@ export class WallpaperService {
     const stamp: number = Date.now();
     const path: string = WallpaperService.baseDir + '/bg_' + stamp + '_' + WallpaperService.seq + '.' + ext;
     let size: number = 0;
-    const source: fileIo.File = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    const source: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
     try {
-      await fileIo.copyFile(source.fd, path);
+      await fs.copyFile(source.fd, path);
     } finally {
       try {
-        fileIo.closeSync(source);
+        fs.closeSync(source);
       } catch (error) {
         Logger.warn('WALLPAPER_MEDIA', '关闭背景源文件失败：' + String(error));
       }
     }
     try {
-      size = fileIo.statSync(path).size;
+      size = fs.statSync(path).size;
     } catch (error) {
       size = 0;
     }
@@ -524,8 +524,8 @@ export class WallpaperService {
       return;
     }
     try {
-      if (fileIo.accessSync(path)) {
-        fileIo.unlinkSync(path);
+      if (fs.accessSync(path)) {
+        fs.unlinkSync(path);
       }
     } catch (error) {
       Logger.warn('WALLPAPER_MEDIA', '删除背景文件失败：' + String(error));
@@ -583,22 +583,12 @@ export class WallpaperService {
    * 直接销毁 Video，重新可见时用同一份资源重建，Surface 就会重新挂载。
    */
   private static bindRouteObserver(context: common.UIAbilityContext): void {
+    // iOS 壳没有 uiObserver，动态背景按“始终可见”处理，避免依赖不存在的模块。
     if (WallpaperService.observerBound) {
       return;
     }
-    try {
-      uiObserver.on('routerPageUpdate', context, (info: uiObserver.RouterPageInfo) => {
-        if (info.state !== uiObserver.RouterPageState.ON_PAGE_SHOW) {
-          return;
-        }
-        WallpaperService.publishTopRoute(String(info.name || ''), String(info.path || ''),
-          Number(info.index));
-      });
-      WallpaperService.observerBound = true;
-      Logger.info('WALLPAPER_MEDIA', '已监听页面显隐，动态背景只在上层页面渲染');
-    } catch (error) {
-      Logger.warn('WALLPAPER_MEDIA', '监听页面显隐失败：' + String(error));
-    }
+    WallpaperService.observerBound = true;
+    Logger.info('WALLPAPER_MEDIA', 'iOS 无 uiObserver，跳过页面显隐监听');
   }
 
   private static publishTopRoute(name: string, path: string, index: number): void {

@@ -1,6 +1,7 @@
-import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { fileIo, picker } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
 import { CommunityApi, ChatMessage } from './CommunityApi';
 import { Logger } from './Logger';
 
@@ -102,11 +103,11 @@ export class ChatArchive {
       const uris: string[] = await documentPicker.save(options);
       if (uris.length === 0) { return ''; }
       const target: string = uris[0];
-      const file: fileIo.File = fileIo.openSync(target, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
+      const file: fs.File = fs.openSync(target, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
       try {
-        fileIo.writeSync(file.fd, json);
+        fs.writeSync(file.fd, json);
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       Logger.info('CHAT_ARCHIVE', '聊天记录已导出：' + target);
       return target;
@@ -125,16 +126,16 @@ export class ChatArchive {
       const documentPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(context);
       const uris: string[] = await documentPicker.select(options);
       if (uris.length === 0) { return 0; }
-      const file: fileIo.File = fileIo.openSync(uris[0], fileIo.OpenMode.READ_ONLY);
+      const file: fs.File = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
       let text: string = '';
       try {
-        const stat: fileIo.Stat = fileIo.statSync(file.fd);
+        const stat: fs.Stat = fs.statSync(file.fd);
         const buffer: ArrayBuffer = new ArrayBuffer(stat.size);
-        const read: number = fileIo.readSync(file.fd, buffer);
+        const read: number = fs.readSync(file.fd, buffer);
         const bytes: Uint8Array = new Uint8Array(buffer).slice(0, read > 0 ? read : stat.size);
         text = String.fromCharCode(...Array.from(bytes));
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       const bundle: ChatArchiveBundle = JSON.parse(text) as ChatArchiveBundle;
       let merged: number = 0;

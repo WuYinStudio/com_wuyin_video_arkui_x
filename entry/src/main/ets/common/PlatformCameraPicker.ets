@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { picker } from '@kit.CoreFileKit';
+import common from '@ohos.app.ability.common';
+import picker from '@ohos.file.picker';
 
 /** 相机枚举占位。 */
 export namespace camera {

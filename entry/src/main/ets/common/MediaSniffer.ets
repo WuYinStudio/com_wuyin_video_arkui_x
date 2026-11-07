@@ -1,4 +1,4 @@
-import { http } from '@kit.NetworkKit';
+import http from '@ohos.net.http';
 import { ApiRequestOptions } from './CommunityApi';
 import { Logger } from './Logger';
 

@@ -1,5 +1,6 @@
-﻿import { common, bundleManager } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+﻿import common from '@ohos.app.ability.common';
+import bundleManager from '@ohos.bundle.bundleManager';
+import window from '@ohos.window';
 import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';

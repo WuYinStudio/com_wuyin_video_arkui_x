@@ -1,5 +1,5 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
 import { AppState, PlayerImmersiveConfig } from './AppState';
 import { Logger } from './Logger';
 import { WallpaperMedia, WallpaperService } from './WallpaperService';

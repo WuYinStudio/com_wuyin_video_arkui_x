@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import common from '@ohos.app.ability.common';
+import window from '@ohos.window';
 import { Logger } from './Logger';
 
 // 仅管理播放页的窗口亮度，不修改系统设置；退出播放页恢复原值。

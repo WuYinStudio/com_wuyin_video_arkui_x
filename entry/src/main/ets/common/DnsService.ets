@@ -1,6 +1,6 @@
-﻿import { http } from '@kit.NetworkKit';
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
+﻿import http from '@ohos.net.http';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
 import { AppState } from './AppState';
 import { Logger } from './Logger';
 

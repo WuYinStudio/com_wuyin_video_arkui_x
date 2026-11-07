@@ -1,7 +1,8 @@
-import { common, Want } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
 import { systemShare } from './PlatformShareKit';
-import { uniformTypeDescriptor } from '@kit.ArkData';
-import { BusinessError } from '@kit.BasicServicesKit';
+import uniformTypeDescriptor from '@ohos.data.uniformTypeDescriptor';
+import { BusinessError } from '@ohos.base';
 import { Logger } from './Logger';
 import { CoPlayInviteHandoff } from './CoPlayInviteHandoff';
 

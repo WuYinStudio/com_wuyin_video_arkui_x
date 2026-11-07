@@ -1,5 +1,5 @@
-﻿import { common } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
+﻿import common from '@ohos.app.ability.common';
+import pasteboard from '@ohos.pasteboard';
 import router from '@ohos.router';
 import { LegalText } from '../common/LegalText';
 import { AccountApi, FollowEntry, RankEntry } from '../common/AccountApi';

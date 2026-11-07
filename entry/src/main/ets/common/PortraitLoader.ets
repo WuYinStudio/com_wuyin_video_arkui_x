@@ -1,5 +1,5 @@
-import { http } from '@kit.NetworkKit';
-import { image } from '@kit.ImageKit';
+import http from '@ohos.net.http';
+import image from '@ohos.multimedia.image';
 import { AccountApi } from './AccountApi';
 import { Logger } from './Logger';
 

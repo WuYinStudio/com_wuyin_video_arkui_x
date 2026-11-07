@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { image } from '@kit.ImageKit';
+import common from '@ohos.app.ability.common';
+import image from '@ohos.multimedia.image';
 
 /**
  * ArkUI-X 的 AVSession 兼容层。

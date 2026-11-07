@@ -1,5 +1,6 @@
-﻿import { common } from '@kit.AbilityKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
 
 // 本地日志轮转：当前文件最大5MB，保留三份归档。通过系统保存面板授权导出。
 export class Logger {
@@ -16,17 +17,17 @@ export class Logger {
       // 统一写入可供日志页面逐行解析的分级标签；未知级别按 INFO 处理。
       const logLevel: string = level === 'WARN' || level === 'ERROR' ? level : 'INFO';
       const path = Logger.path();
-      if (fileIo.accessSync(path) && fileIo.statSync(path).size >= 5 * 1024 * 1024) {
-        if (fileIo.accessSync(path + '.3')) { fileIo.unlinkSync(path + '.3'); }
+      if (fs.accessSync(path) && fs.statSync(path).size >= 5 * 1024 * 1024) {
+        if (fs.accessSync(path + '.3')) { fs.unlinkSync(path + '.3'); }
         for (let i = 2; i >= 1; i--) {
-          if (fileIo.accessSync(path + '.' + i)) { fileIo.renameSync(path + '.' + i, path + '.' + (i + 1)); }
+          if (fs.accessSync(path + '.' + i)) { fs.renameSync(path + '.' + i, path + '.' + (i + 1)); }
         }
-        fileIo.renameSync(path, path + '.1');
+        fs.renameSync(path, path + '.1');
       }
-      const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.APPEND);
+      const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.APPEND);
       try {
-        fileIo.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ios\n`);
-      } finally { fileIo.closeSync(file); }
+        fs.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ios\n`);
+      } finally { fs.closeSync(file); }
     } catch (error) { console.error('日志写入失败：' + String(error)); }
   }
   // 调试日志沿用 INFO 级别，保持现有日志页面的分级解析兼容。
@@ -39,7 +40,7 @@ export class Logger {
     try {
       for (let i = 3; i >= 0; i--) {
         const path = Logger.path() + (i === 0 ? '' : '.' + i);
-        if (fileIo.accessSync(path)) { text += fileIo.readTextSync(path); }
+        if (fs.accessSync(path)) { text += fs.readTextSync(path); }
       }
     } catch (error) { Logger.error('READ', String(error)); }
     return text || '暂无运行日志';
@@ -48,7 +49,7 @@ export class Logger {
     try {
       for (let i = 0; i <= 3; i++) {
         const path = Logger.path() + (i === 0 ? '' : '.' + i);
-        if (fileIo.accessSync(path)) { fileIo.unlinkSync(path); }
+        if (fs.accessSync(path)) { fs.unlinkSync(path); }
       }
     } catch (error) { Logger.error('CLEAR', String(error)); }
   }
@@ -58,8 +59,8 @@ export class Logger {
       options.newFileNames = ['wuyin-runtime.txt'];
       const paths = await new picker.DocumentViewPicker(context).save(options);
       if (!paths.length) { return false; }
-      const file = fileIo.openSync(paths[0], fileIo.OpenMode.READ_WRITE);
-      try { fileIo.writeSync(file.fd, Logger.read()); } finally { fileIo.closeSync(file); }
+      const file = fs.openSync(paths[0], fs.OpenMode.READ_WRITE);
+      try { fs.writeSync(file.fd, Logger.read()); } finally { fs.closeSync(file); }
       return true;
     } catch (error) { Logger.error('EXPORT', String(error)); return false; }
   }

@@ -1,4 +1,4 @@
-﻿import { http } from '@kit.NetworkKit';
+﻿import http from '@ohos.net.http';
 import { Logger } from './Logger';
 import { SearchSource } from './SearchSources';
 import { DnsService } from './DnsService';

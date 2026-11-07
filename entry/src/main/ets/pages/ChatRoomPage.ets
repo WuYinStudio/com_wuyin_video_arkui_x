@@ -1,14 +1,16 @@
 ﻿import router from '@ohos.router';
-import { common } from '@kit.AbilityKit';
-import { media } from '@kit.MediaKit';
-import { http } from '@kit.NetworkKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { image } from '@kit.ImageKit';
+import common from '@ohos.app.ability.common';
+import media from '@ohos.multimedia.media';
+import http from '@ohos.net.http';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import image from '@ohos.multimedia.image';
 import { AccountApi, ChatEntry } from '../common/AccountApi';
 import { buildXmlCard, ChatCardMessage, parseXmlCard, XmlCard } from '../components/ChatCardMessage';
 import { PortraitLoader } from '../common/PortraitLoader';
 import { MediaSniffer, SniffResult } from '../common/MediaSniffer';
-import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
+import { BusinessError } from '@ohos.base';
+import pasteboard from '@ohos.pasteboard';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ChatAlertService } from '../common/ChatAlertService';
 import { ChatMessage, CommunityApi, CommunitySession } from '../common/CommunityApi';
@@ -823,7 +825,7 @@ struct ChatRoomPage {
     const fd: number = this.audioFd;
     this.audioFd = -1;
     if (fd >= 0) {
-      try { fileIo.closeSync(fd); } catch (error) { Logger.warn('CHAT_ROOM', '关闭音频句柄失败：' + String(error)); }
+      try { fs.closeSync(fd); } catch (error) { Logger.warn('CHAT_ROOM', '关闭音频句柄失败：' + String(error)); }
     }
   }
 
@@ -980,9 +982,9 @@ struct ChatRoomPage {
         this.showToast('下载到的音频为空（可能受版权限制）');
         return;
       }
-      const file: fileIo.File = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
-      fileIo.writeSync(file.fd, bytes);
-      fileIo.closeSync(file);
+      const file: fs.File = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
+      fs.writeSync(file.fd, bytes);
+      fs.closeSync(file);
       Logger.info('CHAT_ROOM', '音频已缓存：' + path + '，字节=' + String(bytes.byteLength));
       await this.playLocalAudio(path);
     } catch (error) {
@@ -1010,9 +1012,9 @@ struct ChatRoomPage {
       player.on('error', () => { void this.stopAudio(); });
       player.on('timeUpdate', (time: number) => { if (!this.audioSeeking) { this.audioPosMs = time; } });
       player.on('durationUpdate', (duration: number) => { this.audioDurMs = duration; });
-      const file: fileIo.File = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      const file: fs.File = fs.openSync(path, fs.OpenMode.READ_ONLY);
       this.audioFd = file.fd;
-      const size: number = fileIo.statSync(path).size;
+      const size: number = fs.statSync(path).size;
       player.fdSrc = { fd: file.fd, offset: 0, length: size };
     } catch (error) {
       Logger.error('CHAT_ROOM', '本地音频播放失败：' + String(error));

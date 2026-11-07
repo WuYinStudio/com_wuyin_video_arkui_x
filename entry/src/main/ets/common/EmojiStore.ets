@@ -1,7 +1,8 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { util } from '@kit.ArkTS';
+﻿import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import util from '@ohos.util';
 import { Logger } from './Logger';
 
 /** 一个本地表情：直链 + 加入时间（用于排序和导出）。 */
@@ -114,11 +115,11 @@ export class EmojiStore {
       const uris: string[] = await documentPicker.save(options);
       if (uris.length === 0) { return ''; }
       const target: string = uris[0];
-      const file: fileIo.File = fileIo.openSync(target, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      const file: fs.File = fs.openSync(target, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       try {
-        fileIo.writeSync(file.fd, json);
+        fs.writeSync(file.fd, json);
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       Logger.info('EMOJI_STORE', '表情包已导出：' + target + '，共 ' + String(EmojiStore.items.length) + ' 个');
       return target;
@@ -136,16 +137,16 @@ export class EmojiStore {
       const documentPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(context);
       const uris: string[] = await documentPicker.select(options);
       if (uris.length === 0) { return 0; }
-      const file: fileIo.File = fileIo.openSync(uris[0], fileIo.OpenMode.READ_ONLY);
+      const file: fs.File = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
       let text: string = '';
       try {
-        const stat: fileIo.Stat = fileIo.statSync(file.fd);
+        const stat: fs.Stat = fs.statSync(file.fd);
         const buffer: ArrayBuffer = new ArrayBuffer(stat.size);
-        const read: number = fileIo.readSync(file.fd, buffer);
+        const read: number = fs.readSync(file.fd, buffer);
         const bytes: Uint8Array = new Uint8Array(buffer).slice(0, read > 0 ? read : stat.size);
         text = util.TextDecoder.create('utf-8').decodeToString(bytes);
       } finally {
-        fileIo.closeSync(file);
+        fs.closeSync(file);
       }
       const imported: StickerItem[] = EmojiStore.parseItems(text);
       const merged: StickerItem[] = EmojiStore.merge(imported);

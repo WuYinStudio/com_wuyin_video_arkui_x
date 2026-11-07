@@ -1,8 +1,8 @@
-import { common } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
+﻿import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
 import { storageStatistics } from './PlatformStorage';
-import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import cryptoFramework from '@ohos.security.cryptoFramework';
+import { BusinessError } from '@ohos.base';
 import { Logger } from './Logger';
 
 class OfflinePart {
@@ -63,8 +63,8 @@ export class LocalPlaybackService {
 
   static checkedSize(localPath: string): number {
     try {
-      if (!fileIo.accessSync(localPath)) { throw new Error('本地视频或分片已丢失，请重新下载'); }
-      const info: fileIo.Stat = fileIo.statSync(localPath);
+      if (!fs.accessSync(localPath)) { throw new Error('本地视频或分片已丢失，请重新下载'); }
+      const info: fs.Stat = fs.statSync(localPath);
       if (!info.isFile() || !Number.isSafeInteger(info.size) || info.size <= 0) {
         throw new Error('本地视频或分片为空或大小无效，请重新下载');
       }
@@ -75,20 +75,20 @@ export class LocalPlaybackService {
     }
   }
 
-  private static openReadablePath(localPath: string): fileIo.File {
-    let opened: fileIo.File | undefined;
+  private static openReadablePath(localPath: string): fs.File {
+    let opened: fs.File | undefined;
     try {
       LocalPlaybackService.checkedSize(localPath);
-      opened = fileIo.openSync(localPath, fileIo.OpenMode.READ_ONLY);
+      opened = fs.openSync(localPath, fs.OpenMode.READ_ONLY);
       // access/stat 成功并不保证可读；以明确偏移读取验证权限及文件内容。
       // 调用方使用 fdSrc 的 offset=0 或显式偏移读取，不依赖句柄当前位置。
       const probe = new ArrayBuffer(1);
-      const count: number = fileIo.readSync(opened.fd, probe, { offset: 0, length: 1 });
+      const count: number = fs.readSync(opened.fd, probe, { offset: 0, length: 1 });
       if (count !== 1) { throw new Error('本地视频或分片无法读取，请重新下载'); }
       return opened;
     } catch (error) {
       if (opened) {
-        try { fileIo.closeSync(opened); }
+        try { fs.closeSync(opened); }
         catch (closeError) {
           Logger.warn('PLAYER_LOCAL', '资源类型=local，路径=' + localPath + '，关闭校验句柄失败：' + String(closeError));
         }
@@ -100,17 +100,17 @@ export class LocalPlaybackService {
 
   // 下载入口与播放器共用此入口。返回的句柄由调用方在播放器释放后关闭。
   // 仅接收应用私有目录的本地路径，不解析远程地址，也不请求鉴权。
-  static openFile(source: string, context: common.UIAbilityContext): fileIo.File {
+  static openFile(source: string, context: common.UIAbilityContext): fs.File {
     const localPath: string = LocalPlaybackService.checkedPath(source, context);
     Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + localPath + '，校验本地文件可读性，跳过远程鉴权');
-    const opened: fileIo.File = LocalPlaybackService.openReadablePath(localPath);
+    const opened: fs.File = LocalPlaybackService.openReadablePath(localPath);
     Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + localPath + '，本地文件校验通过，使用文件描述符');
     return opened;
   }
 
   // 合并缓存不在 filesDir，使用单独的严格入口，不放宽下载文件的目录校验。
   // 只接受本服务在当前应用 cacheDir 根目录生成的媒体文件，路由不能传入任意缓存。
-  static openPreparedFile(source: string, context: common.UIAbilityContext): fileIo.File {
+  static openPreparedFile(source: string, context: common.UIAbilityContext): fs.File {
     const localPath: string = source.trim();
     try {
       const cacheRoot: string = context.cacheDir.replace(/\/+$/, '') + '/';
@@ -122,7 +122,7 @@ export class LocalPlaybackService {
         throw new Error('本地播放缓存路径无效，请重新打开视频');
       }
       Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + localPath + '，校验离线合并缓存可读性，不发起远程鉴权');
-      const opened: fileIo.File = LocalPlaybackService.openReadablePath(localPath);
+      const opened: fs.File = LocalPlaybackService.openReadablePath(localPath);
       Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + localPath + '，离线缓存校验通过，使用文件描述符');
       return opened;
     } catch (error) {
@@ -146,7 +146,7 @@ private static parse(manifestPath: string, context: common.UIAbilityContext): Of
   if (LocalPlaybackService.checkedSize(manifestPath) > 2 * 1024 * 1024) {
     throw new Error('离线播放清单过大，请重新下载');
   }
-  const text: string = fileIo.readTextSync(manifestPath).replace(/^\uFEFF/, '').trim();
+  const text: string = fs.readTextSync(manifestPath).replace(/^\uFEFF/, '').trim();
   if (!text.startsWith('#EXTM3U') || !text.includes('#EXT-X-ENDLIST')) {
     throw new Error('离线播放清单不完整，请重新下载');
   }
@@ -236,57 +236,57 @@ private static ivBytes(part: OfflinePart): Uint8Array {
 private static readBytes(localPath: string, maxBytes: number): Uint8Array {
   const size: number = LocalPlaybackService.checkedSize(localPath);
   if (size > maxBytes) { throw new Error('离线加密分片过大，请更换线路重新下载'); }
-  const opened: fileIo.File = LocalPlaybackService.openReadablePath(localPath);
+  const opened: fs.File = LocalPlaybackService.openReadablePath(localPath);
   try {
     const buffer = new ArrayBuffer(size);
     let offset: number = 0;
     while (offset < size) {
       const remaining = new ArrayBuffer(size - offset);
-      const count: number = fileIo.readSync(opened.fd, remaining, { offset: offset, length: size - offset });
+      const count: number = fs.readSync(opened.fd, remaining, { offset: offset, length: size - offset });
       if (count <= 0) { throw new Error('本地视频分片读取不完整，请重新下载'); }
       new Uint8Array(buffer).set(new Uint8Array(remaining, 0, count), offset); offset += count;
     }
     return new Uint8Array(buffer);
-  } finally { fileIo.closeSync(opened); }
+  } finally { fs.closeSync(opened); }
 }
 
-private static writeBytes(output: fileIo.File, data: Uint8Array, startOffset: number): number {
+private static writeBytes(output: fs.File, data: Uint8Array, startOffset: number): number {
   let consumed: number = 0;
   while (consumed < data.byteLength) {
     const chunk: Uint8Array = data.slice(consumed);
-    const count: number = fileIo.writeSync(output.fd, chunk.buffer, { offset: startOffset + consumed, length: chunk.byteLength });
+    const count: number = fs.writeSync(output.fd, chunk.buffer, { offset: startOffset + consumed, length: chunk.byteLength });
     if (count <= 0) { throw new Error('本地播放缓存写入失败，请检查存储空间'); }
     consumed += count;
   }
   return consumed;
 }
 
-private static async copyPart(part: OfflinePart, output: fileIo.File, startOffset: number, cancelled: () => boolean): Promise<number> {
+private static async copyPart(part: OfflinePart, output: fs.File, startOffset: number, cancelled: () => boolean): Promise<number> {
   LocalPlaybackService.checkCancelled(cancelled);
   // 文件校验先于 open，避免 stat/access 抛错后留下未关闭的输入句柄。
   const expected: number = LocalPlaybackService.checkedSize(part.localPath);
-  const input: fileIo.File = LocalPlaybackService.openReadablePath(part.localPath);
+  const input: fs.File = LocalPlaybackService.openReadablePath(part.localPath);
   let consumed: number = 0;
   try {
     while (consumed < expected) {
       LocalPlaybackService.checkCancelled(cancelled);
       const span: number = Math.min(512 * 1024, expected - consumed);
       const buffer = new ArrayBuffer(span);
-      const count: number = fileIo.readSync(input.fd, buffer, { offset: consumed, length: span });
+      const count: number = fs.readSync(input.fd, buffer, { offset: consumed, length: span });
       if (count <= 0) { throw new Error('本地视频分片读取不完整，请重新下载'); }
       LocalPlaybackService.writeBytes(output, new Uint8Array(buffer, 0, count), startOffset + consumed);
       consumed += count;
       // 让页面退出、切集及错误提示有机会执行，准备过程可以及时取消。
       await new Promise<void>((resolve) => { setTimeout(() => { resolve(); }, 0); });
     }
-  } finally { fileIo.closeSync(input); }
+  } finally { fs.closeSync(input); }
   return consumed;
 }
 
 static async prepareHls(source: string, context: common.UIAbilityContext, cancelled: () => boolean): Promise<string> {
   let manifestPath: string = source.trim();
   let outputPath: string = '';
-  let output: fileIo.File | undefined;
+  let output: fs.File | undefined;
   try {
     LocalPlaybackService.checkCancelled(cancelled);
     manifestPath = LocalPlaybackService.checkedPath(source, context);
@@ -298,7 +298,7 @@ static async prepareHls(source: string, context: common.UIAbilityContext, cancel
       throw new Error('本地视频播放缓存空间不足，请清理空间后重试');
     }
     outputPath = context.cacheDir + '/wuyin_offline_playback_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1000000).toString(36) + (plan.fragmentedMp4 ? '.mp4' : '.ts');
-    output = fileIo.openSync(outputPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+    output = fs.openSync(outputPath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
     const keys: Map<string, cryptoFramework.SymKey> = new Map();
     let written: number = 0;
     Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + manifestPath + '，开始准备离线分片，数量=' + plan.parts.length + '，不使用网络或远程鉴权');
@@ -321,13 +321,13 @@ static async prepareHls(source: string, context: common.UIAbilityContext, cancel
         written += LocalPlaybackService.writeBytes(output, decrypted.data, written);
       } else { written += await LocalPlaybackService.copyPart(part, output, written, cancelled); }
     }
-    fileIo.closeSync(output); output = undefined;
+    fs.closeSync(output); output = undefined;
     LocalPlaybackService.checkCancelled(cancelled);
     LocalPlaybackService.checkedSize(outputPath);
     Logger.info('PLAYER_LOCAL', '资源类型=local，路径=' + manifestPath + '，离线文件准备完成，大小=' + written + '，使用本地文件描述符播放');
     return outputPath;
   } catch (error) {
-    if (output) { try { fileIo.closeSync(output); } catch (closeError) { Logger.warn('PLAYER_LOCAL', '关闭离线缓存句柄失败：' + String(closeError)); } }
+    if (output) { try { fs.closeSync(output); } catch (closeError) { Logger.warn('PLAYER_LOCAL', '关闭离线缓存句柄失败：' + String(closeError)); } }
     LocalPlaybackService.cleanup(outputPath);
     throw LocalPlaybackService.fileFailure(manifestPath, error as BusinessError,
       '本地视频或分片无法读取，请检查文件完整性或重新下载');
@@ -336,7 +336,7 @@ static async prepareHls(source: string, context: common.UIAbilityContext, cancel
 
 static cleanup(preparedPath: string): void {
   if (!/\/wuyin_offline_playback_[a-z0-9_]+\.(?:ts|mp4)$/.test(preparedPath)) { return; }
-  try { if (fileIo.accessSync(preparedPath)) { fileIo.unlinkSync(preparedPath); } }
+  try { if (fs.accessSync(preparedPath)) { fs.unlinkSync(preparedPath); } }
   catch (error) { Logger.warn('PLAYER_LOCAL', '清理本地播放临时文件失败，路径=' + preparedPath + '：' + String(error)); }
 }
 }

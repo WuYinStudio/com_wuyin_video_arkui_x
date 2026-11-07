@@ -1,4 +1,5 @@
-﻿import { http, socket } from '@kit.NetworkKit';
+﻿import http from '@ohos.net.http';
+import socket from '@ohos.net.socket';
 
 /** 设备上报的播放进度（秒）。 */
 export interface CastPosition {

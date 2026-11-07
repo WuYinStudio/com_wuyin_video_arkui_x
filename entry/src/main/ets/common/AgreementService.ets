@@ -1,6 +1,6 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
+﻿import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
 import { Logger } from './Logger';
 
 // 同意状态以磁盘为准；AppStorage 只负责 @StorageLink 的实时页面同步。
@@ -17,8 +17,8 @@ export class AgreementService {
   private static readMarker(context: common.UIAbilityContext): boolean {
     try {
       const path: string = AgreementService.markerPath(context);
-      if (path.length > 0 && fileIo.accessSync(path)) {
-        return fileIo.readTextSync(path).trim() === '1';
+      if (path.length > 0 && fs.accessSync(path)) {
+        return fs.readTextSync(path).trim() === '1';
       }
     } catch (error) {
       Logger.error('UserAgreement', '读取协议标记失败：' + String(error));
@@ -30,10 +30,10 @@ export class AgreementService {
     try {
       const path: string = AgreementService.markerPath(context);
       if (path.length > 0) {
-        const file = fileIo.openSync(path,
-          fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-        fileIo.writeSync(file.fd, '1');
-        fileIo.closeSync(file);
+        const file = fs.openSync(path,
+          fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+        fs.writeSync(file.fd, '1');
+        fs.closeSync(file);
         return true;
       }
     } catch (error) {

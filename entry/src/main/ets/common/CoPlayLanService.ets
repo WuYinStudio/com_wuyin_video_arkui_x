@@ -1,8 +1,9 @@
-import { abilityAccessCtrl, common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
+import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import { distributedDeviceManager } from './PlatformDistributedDevice';
-import { socket } from '@kit.NetworkKit';
-import { BusinessError } from '@kit.BasicServicesKit';
-import { util } from '@kit.ArkTS';
+import socket from '@ohos.net.socket';
+import { BusinessError } from '@ohos.base';
+import util from '@ohos.util';
 import { Logger } from './Logger';
 import { CoPlayTransport, CoPlayInvitation } from './CoPlayTransport';
 import { asSocketLike } from './PlatformSocketLike';

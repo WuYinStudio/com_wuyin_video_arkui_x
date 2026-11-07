@@ -9,7 +9,7 @@
  * （底栏、搜索条、Tab、页头、抽屉）。普通卡片用半透明底色 + 渐变高光模拟玻璃，
  * 避免滚动时出现几十个实时模糊节点。
  */
-import { uiMaterial } from '@kit.ArkUI';
+import uiMaterial from '@ohos.arkui.uiMaterial';
 import { registerGlass, unregisterGlass, setParams, setTint, startRender, stopRender, setTouchPosition, triggerRipple } from './GlassCompat';
 import { AppState, PlayerImmersiveConfig } from './AppState';
 import { Logger } from './Logger';

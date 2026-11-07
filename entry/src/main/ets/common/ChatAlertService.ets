@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import common from '@ohos.app.ability.common';
+import { BusinessError } from '@ohos.base';
 import { AccountApi, ChatEntry, FollowEntry } from './AccountApi';
 import { AppState } from './AppState';
 import { ChatMessage, CommunityApi, CommunitySession } from './CommunityApi';

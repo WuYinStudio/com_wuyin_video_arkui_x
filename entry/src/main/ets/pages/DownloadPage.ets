@@ -1,7 +1,7 @@
-﻿import { common } from '@kit.AbilityKit';
+﻿import common from '@ohos.app.ability.common';
 import router from '@ohos.router';
-import { fileIo } from '@kit.CoreFileKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import fs from '@ohos.file.fs';
+import { BusinessError } from '@ohos.base';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { DownloadOptions, DownloadRecord, DownloadService, DownloadState } from '../common/DownloadService';
 import { LocalPlaybackService } from '../common/LocalPlaybackService';
@@ -245,12 +245,12 @@ export struct DownloadPage {
     const localPath: string = LocalPlaybackService.checkedPath(storedPath, this.context());
     // 共享入口不仅检查文件存在和大小，还实际读取一个字节验证可读性；
     // 文件 API 的 401 错误由服务保留原始错误码，不触发远程鉴权或网络回退。
-    const readable: fileIo.File = LocalPlaybackService.openFile(localPath, this.context());
+    const readable: fs.File = LocalPlaybackService.openFile(localPath, this.context());
     try {
       const fileSize: number = LocalPlaybackService.checkedSize(localPath);
       Logger.info('DOWNLOAD_PAGE', '本地文件校验通过，资源类型=local，路径=' + localPath + '，文件大小=' + fileSize);
     } finally {
-      try { fileIo.closeSync(readable); }
+      try { fs.closeSync(readable); }
       catch (error) {
         Logger.warn('DOWNLOAD_PAGE', '关闭本地校验句柄失败，资源类型=local，路径=' + localPath + '：' + String(error));
       }

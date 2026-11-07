@@ -1,5 +1,6 @@
-import { common, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
-import { media } from '@kit.MediaKit';
+import common from '@ohos.app.ability.common';
+import abilityAccessCtrl, { Permissions } from '@ohos.abilityAccessCtrl';
+import media from '@ohos.multimedia.media';
 import { Scene } from '@kit.ArkGraphics3D';
 import { Logger } from './Logger';
 

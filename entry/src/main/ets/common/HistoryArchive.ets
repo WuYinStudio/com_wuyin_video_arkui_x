@@ -1,7 +1,8 @@
-import { common } from '@kit.AbilityKit';
-import { fileIo, picker } from '@kit.CoreFileKit';
-import { zlib } from '@kit.BasicServicesKit';
-import { util } from '@kit.ArkTS';
+﻿import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
+import picker from '@ohos.file.picker';
+import zlib from '@ohos.zlib';
+import util from '@ohos.util';
 import { WatchRecord } from './AppState';
 import { Logger } from './Logger';
 
@@ -32,38 +33,38 @@ export class HistoryArchive {
   private static writeAll(descriptor: number, buffer: ArrayBuffer): void {
     let written: number = 0;
     while (written < buffer.byteLength) {
-      const count: number = fileIo.writeSync(descriptor, written === 0 ? buffer : buffer.slice(written));
+      const count: number = fs.writeSync(descriptor, written === 0 ? buffer : buffer.slice(written));
       if (count <= 0) { throw new Error('播放历史文件写入不完整'); }
       written += count;
     }
   }
 
   private static copyFile(sourcePath: string, targetPath: string, maximumSize: number = HistoryArchive.MAX_ZIP_SIZE): void {
-    const source = fileIo.openSync(sourcePath, fileIo.OpenMode.READ_ONLY);
+    const source = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
     try {
-      const sourceSize: number = fileIo.statSync(source.fd).size;
+      const sourceSize: number = fs.statSync(source.fd).size;
       if (sourceSize <= 0 || sourceSize > maximumSize) {
         throw new Error('播放历史压缩包为空或超过大小限制');
       }
-      const target = fileIo.openSync(targetPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const target = fs.openSync(targetPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       try {
         const buffer = new ArrayBuffer(64 * 1024);
         let count: number = 0;
         let copied: number = 0;
-        while ((count = fileIo.readSync(source.fd, buffer)) > 0) {
+        while ((count = fs.readSync(source.fd, buffer)) > 0) {
           copied += count;
           if (copied > maximumSize) { throw new Error('播放历史压缩包超过大小限制'); }
           HistoryArchive.writeAll(target.fd, count === buffer.byteLength ? buffer : buffer.slice(0, count));
         }
         if (copied !== sourceSize) { throw new Error('播放历史压缩包读取不完整'); }
-      } finally { fileIo.closeSync(target); }
-    } finally { fileIo.closeSync(source); }
+      } finally { fs.closeSync(target); }
+    } finally { fs.closeSync(source); }
   }
 
   private static cleanup(directory: string): void {
     if (!directory) { return; }
     try {
-      if (fileIo.accessSync(directory)) { fileIo.rmdirSync(directory); }
+      if (fs.accessSync(directory)) { fs.rmdirSync(directory); }
     } catch (error) {
       // 清理失败不覆盖导入/导出的原始结果；目录仅包含本次操作的临时文件。
       Logger.error('HISTORY_ARCHIVE', '清理临时归档失败：' + String(error));
@@ -80,15 +81,15 @@ export class HistoryArchive {
         return false;
       }
       temporaryDirectory = context.cacheDir + '/wuyin_history_export_' + Date.now();
-      fileIo.mkdirSync(temporaryDirectory);
+      fs.mkdirSync(temporaryDirectory);
       const textPath: string = temporaryDirectory + '/' + HistoryArchive.TXT_NAME;
       const zipPath: string = temporaryDirectory + '/' + HistoryArchive.ZIP_NAME;
-      const textFile = fileIo.openSync(textPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const textFile = fs.openSync(textPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       try {
         const encoded: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(JSON.stringify(records));
         if (encoded.byteLength > HistoryArchive.MAX_TEXT_SIZE) { throw new Error('播放历史文件过大'); }
         HistoryArchive.writeAll(textFile.fd, encoded.buffer as ArrayBuffer);
-      } finally { fileIo.closeSync(textFile); }
+      } finally { fs.closeSync(textFile); }
       await zlib.compressFile(textPath, zipPath, {});
       HistoryArchive.copyFile(zipPath, targetUri);
       Logger.info('HISTORY_ARCHIVE', '播放历史导出完成，条数=' + records.length);
@@ -110,15 +111,15 @@ export class HistoryArchive {
       // 授权 URI 不一定携带显示名称，使用包内固定文本文件校验归档。
       // 独立工作目录避免上一次导入残留文件被误识别为本次内容。
       temporaryDirectory = context.cacheDir + '/wuyin_history_import_' + Date.now();
-      fileIo.mkdirSync(temporaryDirectory);
+      fs.mkdirSync(temporaryDirectory);
       const zipPath: string = temporaryDirectory + '/' + HistoryArchive.ZIP_NAME;
       const textPath: string = temporaryDirectory + '/' + HistoryArchive.TXT_NAME;
       HistoryArchive.copyFile(sourceUri, zipPath);
       await zlib.decompressFile(zipPath, temporaryDirectory);
-      const textFile = fileIo.openSync(textPath, fileIo.OpenMode.READ_ONLY);
+      const textFile = fs.openSync(textPath, fs.OpenMode.READ_ONLY);
       let textBuffer: ArrayBuffer;
       try {
-        const textStat = fileIo.statSync(textFile.fd);
+        const textStat = fs.statSync(textFile.fd);
         if (textStat.size <= 0 || textStat.size > HistoryArchive.MAX_TEXT_SIZE) {
           throw new Error('播放历史文件为空或超过大小限制');
         }
@@ -127,12 +128,12 @@ export class HistoryArchive {
         const chunk = new ArrayBuffer(Math.min(64 * 1024, textStat.size));
         let received: number = 0;
         while (received < textStat.size) {
-          const count: number = fileIo.readSync(textFile.fd, chunk, { length: Math.min(chunk.byteLength, textStat.size - received) });
+          const count: number = fs.readSync(textFile.fd, chunk, { length: Math.min(chunk.byteLength, textStat.size - received) });
           if (count <= 0) { throw new Error('播放历史文件读取不完整'); }
           bytes.set(new Uint8Array(chunk, 0, count), received);
           received += count;
         }
-      } finally { fileIo.closeSync(textFile); }
+      } finally { fs.closeSync(textFile); }
       const json: string = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeWithStream(new Uint8Array(textBuffer));
       const parsed: Object = JSON.parse(json) as Object;
       if (!Array.isArray(parsed)) { throw new Error('归档内容不是播放历史列表'); }

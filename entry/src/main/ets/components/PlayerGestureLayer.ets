@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { AppBrightnessUtil } from '../common/AppBrightnessUtil';
 import { Logger } from '../common/Logger';

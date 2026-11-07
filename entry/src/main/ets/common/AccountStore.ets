@@ -1,5 +1,5 @@
-import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
+import preferences from '@ohos.data.preferences';
+import common from '@ohos.app.ability.common';
 import { Logger } from './Logger';
 
 /** 一条金币流水。 */

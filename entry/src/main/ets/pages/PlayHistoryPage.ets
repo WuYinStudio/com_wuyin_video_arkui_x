@@ -1,6 +1,6 @@
-﻿import { common } from '@kit.AbilityKit';
+﻿import common from '@ohos.app.ability.common';
 import router from '@ohos.router';
-import { preferences } from '@kit.ArkData';
+import preferences from '@ohos.data.preferences';
 import { AppState, PlayerImmersiveConfig, WatchRecord } from '../common/AppState';
 import { ShareService } from '../common/ShareService';
 import { SearchVideoItem } from './PlayerPage';

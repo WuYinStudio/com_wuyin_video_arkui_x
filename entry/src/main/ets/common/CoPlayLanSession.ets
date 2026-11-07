@@ -1,6 +1,6 @@
-import { socket } from '@kit.NetworkKit';
-import { util } from '@kit.ArkTS';
-import { BusinessError } from '@kit.BasicServicesKit';
+import socket from '@ohos.net.socket';
+import util from '@ohos.util';
+import { BusinessError } from '@ohos.base';
 import { Logger } from './Logger';
 
 interface SessionProbe {

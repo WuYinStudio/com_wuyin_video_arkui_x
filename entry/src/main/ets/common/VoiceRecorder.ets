@@ -1,6 +1,7 @@
-import { audio } from '@kit.AudioKit';
-import { fileIo } from '@kit.CoreFileKit';
-import { abilityAccessCtrl, common, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
+﻿import audio from '@ohos.multimedia.audio';
+import fs from '@ohos.file.fs';
+import common from '@ohos.app.ability.common';
+import abilityAccessCtrl, { Permissions, PermissionRequestResult } from '@ohos.abilityAccessCtrl';
 import { Logger } from './Logger';
 import { PlatformBridge } from './PlatformBridge';
 import { PlatformInfo } from './PlatformInfo';
@@ -27,7 +28,7 @@ export class VoiceRecorder {
   private static readonly BITS: number = 16;
   private static readonly HEADER_BYTES: number = 44;
   private capturer?: audio.AudioCapturer = undefined;
-  private file?: fileIo.File = undefined;
+  private file?: fs.File = undefined;
   private path: string = '';
   private startedAt: number = 0;
   private pcmBytes: number = 0;
@@ -76,10 +77,10 @@ export class VoiceRecorder {
   async start(path: string): Promise<void> {
     if (this.recording) { return; }
     const wavPath: string = path.endsWith('.wav') ? path : path.replace(/\.[A-Za-z0-9]+$/, '') + '.wav';
-    const file: fileIo.File = fileIo.openSync(wavPath,
-      fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+    const file: fs.File = fs.openSync(wavPath,
+      fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
     // 先占位 44 字节，录完回填 WAV 头。
-    fileIo.writeSync(file.fd, new ArrayBuffer(VoiceRecorder.HEADER_BYTES));
+    fs.writeSync(file.fd, new ArrayBuffer(VoiceRecorder.HEADER_BYTES));
     let capturer: audio.AudioCapturer | undefined = undefined;
     try {
       const streamInfo: audio.AudioStreamInfo = {
@@ -101,7 +102,7 @@ export class VoiceRecorder {
       capturer.on('readData', (buffer: ArrayBuffer): void => {
         if (!this.recording || this.file === undefined) { return; }
         try {
-          fileIo.writeSync(this.file.fd, buffer);
+          fs.writeSync(this.file.fd, buffer);
           this.pcmBytes += buffer.byteLength;
         } catch (error) {
           Logger.warn('CHAT_VOICE', '写入录音数据失败：' + String(error));
@@ -116,7 +117,7 @@ export class VoiceRecorder {
       Logger.info('CHAT_VOICE', '开始录音（wav）');
     } catch (error) {
       try { if (capturer !== undefined) { await capturer.release(); } } catch (_) { /* 忽略 */ }
-      try { fileIo.closeSync(file); } catch (_) { /* 忽略 */ }
+      try { fs.closeSync(file); } catch (_) { /* 忽略 */ }
       this.recording = false;
       throw new Error('录音启动失败：' + String(error));
     }
@@ -138,16 +139,16 @@ export class VoiceRecorder {
         Logger.warn('CHAT_VOICE', '释放采集器失败：' + String(error));
       }
     }
-    const file: fileIo.File | undefined = this.file;
+    const file: fs.File | undefined = this.file;
     this.file = undefined;
     if (file !== undefined) {
       try {
         const header: ArrayBuffer = VoiceRecorder.wavHeader(this.pcmBytes);
-        fileIo.writeSync(file.fd, header, { offset: 0, length: header.byteLength });
+        fs.writeSync(file.fd, header, { offset: 0, length: header.byteLength });
       } catch (error) {
         Logger.warn('CHAT_VOICE', '写入 WAV 头失败：' + String(error));
       }
-      try { fileIo.closeSync(file); } catch (_) { /* 忽略 */ }
+      try { fs.closeSync(file); } catch (_) { /* 忽略 */ }
     }
     const bytesPerSecond: number = VoiceRecorder.SAMPLE_RATE * VoiceRecorder.CHANNELS * VoiceRecorder.BITS / 8;
     const fromPcm: number = this.pcmBytes > 0 ? Math.round(this.pcmBytes * 1000 / bytesPerSecond) : 0;
@@ -167,10 +168,10 @@ export class VoiceRecorder {
       try { await capturer.release(); } catch (_) { /* 忽略 */ }
     }
     this.recording = false;
-    const file: fileIo.File | undefined = this.file;
+    const file: fs.File | undefined = this.file;
     this.file = undefined;
     if (file !== undefined) {
-      try { fileIo.closeSync(file); } catch (_) { /* 忽略 */ }
+      try { fs.closeSync(file); } catch (_) { /* 忽略 */ }
     }
     VoiceRecorder.deleteFile(path);
   }
@@ -199,6 +200,6 @@ export class VoiceRecorder {
 
   static deleteFile(path: string): void {
     if (path.length === 0) { return; }
-    try { fileIo.unlinkSync(path); } catch (_) { /* 文件不存在也无所谓 */ }
+    try { fs.unlinkSync(path); } catch (_) { /* 文件不存在也无所谓 */ }
   }
 }

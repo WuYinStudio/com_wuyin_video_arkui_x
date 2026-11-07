@@ -1,9 +1,11 @@
 ﻿import { avSession } from '../common/PlatformAVSession';
-import { common, Want } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
-import { webSocket } from '@kit.NetworkKit';
-import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
-import { util } from '@kit.ArkTS';
+import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
+import preferences from '@ohos.data.preferences';
+import webSocket from '@ohos.net.webSocket';
+import { BusinessError } from '@ohos.base';
+import deviceInfo from '@ohos.deviceInfo';
+import util from '@ohos.util';
 import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';

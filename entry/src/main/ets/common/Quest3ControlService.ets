@@ -1,5 +1,5 @@
-import { webSocket } from '@kit.NetworkKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import webSocket from '@ohos.net.webSocket';
+import { BusinessError } from '@ohos.base';
 import { Logger } from './Logger';
 
 /** 原协播邀请字段保持不变；sceneMode 仅是 Quest3 扩展字段。 */
