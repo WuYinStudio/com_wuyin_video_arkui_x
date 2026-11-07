@@ -82,8 +82,10 @@ jobs:
           ls -1 build/sim/app.app/Frameworks | head -n 40
 
       - name: Run app in simulator
+        timeout-minutes: 15
         run: |
           set -euo pipefail
+          set -x
           # macOS 自带 perl 的 alarm 在 exec 后失效；用后台子进程 + kill 实现硬超时。
           run_with_timeout() {
             local t=$1; shift
