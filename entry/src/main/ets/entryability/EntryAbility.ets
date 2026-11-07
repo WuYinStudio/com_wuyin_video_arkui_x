@@ -106,6 +106,7 @@ interface ChatNoticeRouteOptions extends router.RouterOptions {
 export default class EntryAbility extends UIAbility {
   private stage?: window.WindowStage;
   private ready: boolean = false;
+  private indexLoaded: boolean = false;
   private configReady: boolean = false;
   // 普通分享保留原有内存交接；协播长载荷另存应用私有缓存，不进入 Want/页面路由。
   private pendingShare?: SharedPlayerParams;
@@ -673,7 +674,34 @@ export default class EntryAbility extends UIAbility {
   }
 
 
+  private loadIndex(windowStage: window.WindowStage): void {
+    if (this.indexLoaded) { return; }
+    this.indexLoaded = true;
+    try {
+      windowStage.loadContent('pages/Index', (error) => {
+        try {
+          if (this.stage !== windowStage) { return; }
+          if (error && error.code) { Logger.error('SCHEME', '加载应用入口失败'); return; }
+          this.ready = true;
+          this.showPendingShareError();
+          this.openSharedPlayer();
+          // 冷启动时从通知栏点进来的聊天室，等首页加载完再跳。
+          this.openPendingChatRoom();
+          void ImmersiveService.apply(true);
+        } catch (_) { Logger.error('SCHEME', '处理入口加载回调失败'); }
+      });
+    } catch (error) { Logger.error('SCHEME', '加载应用入口异常：' + String(error)); }
+  }
+
   private async initializeWindow(windowStage: window.WindowStage): Promise<void> {
+    this.indexLoaded = false;
+    // iOS 上部分窗口/偏好 API 可能一直不 resolve；超时后先加载入口页，避免永久白屏。
+    const watchdog = setTimeout(() => {
+      if (this.stage === windowStage && !this.indexLoaded) {
+        Logger.warn('SCHEME', '启动初始化超时，先加载入口页面');
+        this.loadIndex(windowStage);
+      }
+    }, 5000);
     // 先恢复 AppConfig 与 AppState 的持久化配置，再创建页面。
     try {
       if (!this.configReady) {
@@ -694,7 +722,7 @@ export default class EntryAbility extends UIAbility {
         this.configReady = true;
       }
     } catch (error) { Logger.error('GLOBAL_CONFIG', '恢复全局配置失败：' + String(error)); }
-    if (this.stage !== windowStage) { return; }
+    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
     // 协议状态必须在入口页面和外部分享链接可用前从磁盘恢复。
     try { await AgreementService.restore(this.context); }
     catch (error) {
@@ -702,25 +730,19 @@ export default class EntryAbility extends UIAbility {
       try { AppStorage.setOrCreate('agreementAccepted', false); }
       catch (storageError) { Logger.error('UserAgreement', '重置协议状态失败：' + String(storageError)); }
     }
-    if (this.stage !== windowStage) { return; }
+    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
     // 所有页面及路由共用透明系统栏；毛玻璃开关只控制应用组件材质。
-    try { await ImmersiveService.attach(windowStage.getMainWindowSync()); }
-    catch (error) { Logger.error('GLOBAL_IMMERSIVE', '准备应用窗口失败：' + String(error)); }
-    if (this.stage !== windowStage) { return; }
     try {
-      windowStage.loadContent('pages/Index', (error) => {
-        try {
-          if (this.stage !== windowStage) { return; }
-          if (error && error.code) { Logger.error('SCHEME', '加载应用入口失败'); return; }
-          this.ready = true;
-          this.showPendingShareError();
-          this.openSharedPlayer();
-          // 冷启动时从通知栏点进来的聊天室，等首页加载完再跳。
-          this.openPendingChatRoom();
-          void ImmersiveService.apply(true);
-        } catch (_) { Logger.error('SCHEME', '处理入口加载回调失败'); }
+      const mainWindow = windowStage.getMainWindowSync();
+      const attachPromise = ImmersiveService.attach(mainWindow);
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 1500);
       });
-    } catch (error) { Logger.error('SCHEME', '加载应用入口异常：' + String(error)); }
+      await Promise.race([attachPromise, timeoutPromise]);
+    } catch (error) { Logger.error('GLOBAL_IMMERSIVE', '准备应用窗口失败：' + String(error)); }
+    if (this.stage !== windowStage) { clearTimeout(watchdog); return; }
+    clearTimeout(watchdog);
+    this.loadIndex(windowStage);
   }
 
   // 系统深浅色变化时实时刷新全局主题；“跟随系统”模式无需重启应用。
