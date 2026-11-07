@@ -7,6 +7,8 @@ import { ImmersiveService } from '../common/ImmersiveService';
 import { Logger } from '../common/Logger';
 import { NavTabs } from '../common/NavTabs';
 import { NavigationScroll } from '../common/NavigationScroll';
+import { PlatformBridge } from '../common/PlatformBridge';
+import { PlatformInfo } from '../common/PlatformInfo';
 import { SocialStore } from '../common/SocialStore';
 import { ThemeService } from '../common/ThemeService';
 import { Ui, UiMotion } from '../common/Ui';
@@ -585,28 +587,46 @@ export struct HomePage {
     this.varietyMessage = '';
     let request: http.HttpRequest | undefined;
     try {
-      request = http.createHttp();
-      const response: http.HttpResponse = await request.request(this.homeAddress, {
-        method: http.RequestMethod.GET, connectTimeout: 10000, readTimeout: 15000,
-          expectDataType: http.HttpDataType.STRING,
-          usingCache: false,
-          header: {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-            'Accept': 'application/json,text/plain,*/*',
-            'Accept-Encoding': 'identity'
-          }
-      });
-      if (response.responseCode !== 200) {
-        Logger.error('HomeModule', response.responseCode === 499 ? 'HTTP499 请求取消' :
-          response.responseCode === 404 ? 'HTTP404 接口不存在' : '接口 HTTP ' + response.responseCode);
-        Logger.error('HomeRecommendFix', response.responseCode === 499 ? 'HTTP499 推荐请求取消' :
-          '推荐请求 HTTP ' + response.responseCode);
-        Logger.error('HomeTabSwitch', '首页接口请求失败 HTTP ' + response.responseCode);
-        throw new Error('HTTP 状态异常');
+      let bodyText: string = '';
+      if (PlatformInfo.isIOS()) {
+        const headers: string = JSON.stringify({
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+          'Accept': 'application/json,text/plain,*/*',
+          'Accept-Encoding': 'identity'
+        });
+        const raw: string = await PlatformBridge.httpRequest(this.homeAddress, 'GET', headers, '');
+        const split: number = raw.indexOf('\n');
+        const code: number = split >= 0 ? Number(raw.substring(0, split)) : -1;
+        bodyText = split >= 0 ? raw.substring(split + 1) : raw;
+        if (code !== 200) {
+          Logger.error('HomeModule', 'iOS 首页接口 HTTP ' + code);
+          throw new Error('HTTP ' + code);
+        }
+      } else {
+        request = http.createHttp();
+        const response: http.HttpResponse = await request.request(this.homeAddress, {
+          method: http.RequestMethod.GET, connectTimeout: 10000, readTimeout: 15000,
+            expectDataType: http.HttpDataType.STRING,
+            usingCache: false,
+            header: {
+              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+              'Accept': 'application/json,text/plain,*/*',
+              'Accept-Encoding': 'identity'
+            }
+        });
+        if (response.responseCode !== 200) {
+          Logger.error('HomeModule', response.responseCode === 499 ? 'HTTP499 请求取消' :
+            response.responseCode === 404 ? 'HTTP404 接口不存在' : '接口 HTTP ' + response.responseCode);
+          Logger.error('HomeRecommendFix', response.responseCode === 499 ? 'HTTP499 推荐请求取消' :
+            '推荐请求 HTTP ' + response.responseCode);
+          Logger.error('HomeTabSwitch', '首页接口请求失败 HTTP ' + response.responseCode);
+          throw new Error('HTTP 状态异常');
+        }
+        bodyText = String(response.result);
       }
       let payload: HomeResponse;
       try {
-        payload = JSON.parse(String(response.result)) as HomeResponse;
+        payload = JSON.parse(bodyText) as HomeResponse;
       } catch (_) {
         Logger.error('HomeRecommendFix', '推荐数据 JSON 解析错误');
         Logger.error('HomeTabSwitch', '首页数据 JSON 解析错误');

@@ -1,6 +1,14 @@
 import bridge from '@arkui-x.bridge';
 import { Logger } from './Logger';
 
+interface HttpBridgePayload {
+  action: string;
+  url: string;
+  method: string;
+  headers: string;
+  body: string;
+}
+
 /**
  * ArkUI-X 原生桥。
  *
@@ -182,5 +190,21 @@ export class PlatformBridge {
     } catch (error) {
       return 100;
     }
+  }
+
+  /**
+   * iOS 没有 @ohos.net.http 实现，走 WuyinPlatformBridge 的 NSURLSession。
+   * 返回 "HTTP状态码\n响应体"。
+   */
+  static async httpRequest(url: string, method: string, headers: string, body: string): Promise<string> {
+    const payload: HttpBridgePayload = {
+      action: 'http',
+      url: url,
+      method: method,
+      headers: headers,
+      body: body
+    };
+    const result: bridge.Response = await (PlatformBridge.ensure().sendMessage(JSON.stringify(payload)) as Promise<bridge.Response>);
+    return result === undefined || result === null ? '-1\nempty response' : String(result);
   }
 }
