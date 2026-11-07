@@ -10,6 +10,8 @@ ReservedCode2: ''
 */
 // 内容由 AI 生成，请仔细甄别（AI）
 import common from '@ohos.app.ability.common';
+import fs from '@ohos.file.fs';
+import http from '@ohos.net.http';
 import promptAction from '@ohos.promptAction';
 import router from '@ohos.router';
 import { AgreementService } from '../common/AgreementService';
@@ -57,17 +59,37 @@ struct Index {
     }
   }
 
-  /** 云端 iOS 自测：先测网络桥，再逐页 push，日志写入 runtime.log。 */
+  /** 云端 iOS 自测：先测网络与原生桥，再逐页 push / 切换底栏。 */
   private async runIosSmokeTest(): Promise<void> {
     await this.smokeSleep(5000);
     AppStorage.setOrCreate('agreementAccepted', true);
     this.smokeLog('SMOKE', '==== start ====');
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const agreement: string = fs.accessSync(context.filesDir + '/agreement_accepted.txt') ? 'yes' : 'no';
+      this.smokeLog('SMOKE_STORAGE', 'filesDir=' + context.filesDir + ' agreement=' + agreement);
+    } catch (error) {
+      this.smokeLog('SMOKE_STORAGE', 'error=' + String(error));
+    }
+    this.smokeLog('SMOKE_BRIDGE', 'battery=' + String(await PlatformBridge.batteryPercent()));
     const homeUrl: string = 'http://www.baofeng.com/po/v10/config/channelhome?nav_id=203&pg=1&cp=fr4k0se&cl=newweb_baofeng';
     try {
       const raw: string = await PlatformBridge.httpRequest(homeUrl, 'GET', '{}', '');
       this.smokeLog('SMOKE_HTTP', 'bridge=' + raw.substring(0, 160).replace(/\n/g, ' | '));
     } catch (error) {
       this.smokeLog('SMOKE_HTTP', 'bridge error=' + String(error));
+    }
+    try {
+      const request: http.HttpRequest = http.createHttp();
+      const response: http.HttpResponse = await request.request(homeUrl, {
+        method: http.RequestMethod.GET, connectTimeout: 10000, readTimeout: 15000,
+        expectDataType: http.HttpDataType.STRING
+      });
+      this.smokeLog('SMOKE_HTTP_DIRECT', 'code=' + response.responseCode +
+        ' body=' + String(response.result).substring(0, 120).replace(/\n/g, ' | '));
+      request.destroy();
+    } catch (error) {
+      this.smokeLog('SMOKE_HTTP_DIRECT', 'error=' + String(error));
     }
     const routes: string[] = [
       'pages/PlayerPage', 'pages/MessagePage', 'pages/ForumPage', 'pages/LoginPage',
@@ -97,6 +119,9 @@ struct Index {
       await this.smokeSleep(1800);
       this.smokeLog('SMOKE_TAB', 'ok ' + tab);
     }
+    this.smokeLog('SMOKE_TAB', 'switch home');
+    AppStorage.setOrCreate('page', 'home');
+    await this.smokeSleep(8000);
     this.smokeLog('SMOKE', '==== done ====');
   }
 
@@ -118,6 +143,19 @@ struct Index {
     } finally {
       this.agreementReady = true;
       this.onPlayerHandoffChanged();
+      this.maybeRunIosSmokeTest();
+    }
+  }
+
+  /** 云端模拟器通过 WUYIN_SMOKE=1 写入标记文件；正式包没有该文件时不会执行。 */
+  private maybeRunIosSmokeTest(): void {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      if (!fs.accessSync(context.filesDir + '/smoke_mode.txt')) { return; }
+      Logger.info('SMOKE', '检测到 smoke_mode.txt，启动 iOS 冒烟测试');
+      void this.runIosSmokeTest();
+    } catch (_) {
+      // 非 iOS / 无文件系统时静默跳过。
     }
   }
 

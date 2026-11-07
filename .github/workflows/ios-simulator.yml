@@ -84,18 +84,15 @@ jobs:
       - name: Run app in simulator
         run: |
           set -euo pipefail
+          run_with_timeout() { local t=$1; shift; perl -e 'alarm shift; exec @ARGV' "$t" "$@"; }
           UDID=$(xcrun simctl list devices available | grep -m1 -E 'iPhone' | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
-          echo "simulator=$UDID"
+          echo "[$(date +%T)] simulator=$UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$UDID" || true
-          for i in $(seq 1 90); do
-            if xcrun simctl list devices | grep "$UDID" | grep -q '(Booted)'; then
-              echo "booted after ${i} checks"
-              break
-            fi
-            sleep 2
-          done
-          xcrun simctl install "$UDID" build/sim/app.app
+          run_with_timeout 180 xcrun simctl boot "$UDID" || true
+          run_with_timeout 240 xcrun simctl bootstatus "$UDID" -b || true
+          echo "[$(date +%T)] boot check done"
+          run_with_timeout 240 xcrun simctl install "$UDID" build/sim/app.app
+          echo "[$(date +%T)] installed"
           DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
           if [ -n "$DATA" ]; then
             for d in "$DATA/Documents" "$DATA/Documents/files" "$DATA/Library/files" "$DATA/Library/Application Support" "$DATA/tmp"; do
@@ -104,11 +101,15 @@ jobs:
             done
           fi
           set +e
-          xcrun simctl launch "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
+          SIMCTL_CHILD_WUYIN_SMOKE=1 run_with_timeout 60 xcrun simctl launch --terminate-running-process "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
           launch_rc=$?
-          sleep 20
-          xcrun simctl spawn "$UDID" log show --last 2m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
-          xcrun simctl io "$UDID" screenshot /tmp/sim.png
+          echo "[$(date +%T)] launched rc=$launch_rc"
+          # 冒烟测试约 45 秒，之后回到首页再截屏。
+          sleep 55
+          run_with_timeout 60 xcrun simctl io "$UDID" screenshot /tmp/sim.png
+          echo "[$(date +%T)] screenshot done"
+          run_with_timeout 90 xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
+          echo "[$(date +%T)] log collected $(wc -l < /tmp/app.log 2>/dev/null || echo 0) lines"
           set -e
           echo "launch_rc=$launch_rc"
           cat /tmp/launch.txt || true
@@ -118,7 +119,7 @@ jobs:
             echo "## iOS simulator log"
             echo "launch_rc=$launch_rc"
             echo '```'
-            tail -n 400 /tmp/app.log || true
+            tail -n 500 /tmp/app.log || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -131,7 +132,7 @@ jobs:
             echo "### app process"
             xcrun simctl spawn "$UDID" launchctl list | grep -i wuyin || true
             echo "### unified log (SMOKE/errors)"
-            xcrun simctl spawn "$UDID" log show --last 5m --style compact --predicate 'process == "app"' 2>/dev/null \
+            perl -e 'alarm shift; exec @ARGV' 120 xcrun simctl spawn "$UDID" log show --last 5m --style compact --predicate 'process == "app"' 2>/dev/null \
               | grep -iE 'SMOKE|ERROR|TypeError|Fatal|Exception|abort|bridge|http|accessSync|undefined|not support' \
               | tail -n 400 || true
             echo "### runtime.log"

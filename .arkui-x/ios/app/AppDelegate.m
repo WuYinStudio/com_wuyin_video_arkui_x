@@ -14,6 +14,8 @@
 #import "EntryEntryAbilityViewController.h"
 #import <libarkui_ios/StageApplication.h>
 #import <libarkui_ios/BridgePlugin.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define BUNDLE_DIRECTORY @"arkui-x"
 #define BUNDLE_NAME @"com.wuyin.video"
@@ -26,7 +28,39 @@
 
 @implementation AppDelegate
 
+static void WuYinWriteTextFile(NSString *path, NSString *text) {
+    [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    [text writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+/// 云端模拟器自测：通过 WUYIN_SMOKE=1 预置协议同意标记与 smoke 标记。
+/// 这样 CI 不需要点击 UI 就能进入首页；正式包没有该环境变量时不会写入。
+static void WuYinPrepareSmokeMarkers(void) {
+    const char *env = getenv("WUYIN_SMOKE");
+    if (env == NULL || strcmp(env, "1") != 0) {
+        return;
+    }
+    NSString *home = NSHomeDirectory();
+    NSArray<NSString *> *dirs = @[
+        home,
+        [home stringByAppendingPathComponent:@"Documents"],
+        [home stringByAppendingPathComponent:@"Documents/files"],
+        [home stringByAppendingPathComponent:@"Library/files"],
+        [home stringByAppendingPathComponent:@"Library/Application Support"],
+        [home stringByAppendingPathComponent:@"tmp"]
+    ];
+    for (NSString *dir in dirs) {
+        WuYinWriteTextFile([dir stringByAppendingPathComponent:@"agreement_accepted.txt"], @"1");
+        WuYinWriteTextFile([dir stringByAppendingPathComponent:@"smoke_mode.txt"], @"1");
+    }
+    NSLog(@"WuYinVideo smoke markers prepared at %@", home);
+}
+
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    WuYinPrepareSmokeMarkers();
     [StageApplication configModuleWithBundleDirectory:BUNDLE_DIRECTORY];
     [StageApplication launchApplication];
 
