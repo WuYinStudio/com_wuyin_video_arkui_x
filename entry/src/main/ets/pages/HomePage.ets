@@ -272,6 +272,10 @@ export struct HomePage {
     this.sliding = false;
     this.stopBannerTimer();
     this.clearFadeTimers();
+    if (this.imageWaitTimer !== -1) {
+      clearTimeout(this.imageWaitTimer);
+      this.imageWaitTimer = -1;
+    }
     // 页面离开不撤销窗口沉浸，避免下一页系统导航区短暂恢复实色。
   }
   private onImmersiveChanged(): void {
@@ -588,7 +592,7 @@ export struct HomePage {
     let request: http.HttpRequest | undefined;
     try {
       let bodyText: string = '';
-      if (PlatformInfo.isIOS()) {
+      if (false) {
         const headers: string = JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
           'Accept': 'application/json,text/plain,*/*',
