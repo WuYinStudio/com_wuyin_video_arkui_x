@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
 import { media } from '@kit.MediaKit';
 import { http } from '@kit.NetworkKit';

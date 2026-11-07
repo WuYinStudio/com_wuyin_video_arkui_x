@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+﻿import { common } from '@kit.AbilityKit';
+import router from '@ohos.router';
 import { AppConfig } from '../common/AppConfig';
 import { ImageHostConfig, ImageHostResult, ImageHostService } from '../common/ImageHostService';
 import { picker } from '@kit.CoreFileKit';

@@ -1,10 +1,10 @@
-import { avSession } from '../common/PlatformAVSession';
+﻿import { avSession } from '../common/PlatformAVSession';
 import { common, Want } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { webSocket } from '@kit.NetworkKit';
 import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
-import { router } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { CoPlayInviteHandoff } from '../common/CoPlayInviteHandoff';

@@ -1,5 +1,5 @@
-import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+﻿import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
+import router from '@ohos.router';
 import { preferences, uniformTypeDescriptor } from '@kit.ArkData';
 import { systemShare } from '../common/PlatformShareKit';
 import { AppConfig } from '../common/AppConfig';

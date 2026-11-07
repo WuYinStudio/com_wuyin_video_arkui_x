@@ -1,5 +1,6 @@
-import { media } from '@kit.MediaKit';
-import { window, router, promptAction } from '@kit.ArkUI';
+﻿import { media } from '@kit.MediaKit';
+import { window, promptAction } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { PiPWindow } from '../common/PlatformPiP';
 import { preferences } from '@kit.ArkData';
 import { common, abilityAccessCtrl, bundleManager } from '@kit.AbilityKit';

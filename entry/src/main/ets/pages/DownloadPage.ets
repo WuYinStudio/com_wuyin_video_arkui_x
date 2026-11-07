@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+﻿import { common } from '@kit.AbilityKit';
+import router from '@ohos.router';
 import { fileIo } from '@kit.CoreFileKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';

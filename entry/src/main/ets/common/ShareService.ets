@@ -1,8 +1,9 @@
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
 import { common2D, effectKit } from '@kit.ArkGraphics2D';
 import { FestivalTheme } from './FestivalTheme';
 import { systemShare } from './PlatformShareKit';
-import { promptAction, router, window } from '@kit.ArkUI';
+import { promptAction, window } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { generateBarcode, scanCore } from './PlatformScanKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';

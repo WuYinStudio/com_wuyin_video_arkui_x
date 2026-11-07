@@ -1,5 +1,5 @@
-import { detectBarcode, scanBarcode, scanCore } from '../common/PlatformScanKit';
-import { router } from '@kit.ArkUI';
+﻿import { detectBarcode, scanBarcode, scanCore } from '../common/PlatformScanKit';
+import router from '@ohos.router';
 import { abilityAccessCtrl, common, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
 import { picker } from '@kit.CoreFileKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';

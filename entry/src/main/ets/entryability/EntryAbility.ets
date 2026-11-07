@@ -1,5 +1,6 @@
-import { UIAbility, Want, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
-import { window, router } from '@kit.ArkUI';
+﻿import { UIAbility, Want, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
+import { window } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';

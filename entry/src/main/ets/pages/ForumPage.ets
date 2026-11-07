@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession, ForumCategory, ForumPost } from '../common/CommunityApi';
 import { ForumCodec, ForumContent, ForumMedia } from '../common/ForumCodec';

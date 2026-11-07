@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { CommunityApi, CommunitySession, ForumPost, ForumReply } from '../common/CommunityApi';

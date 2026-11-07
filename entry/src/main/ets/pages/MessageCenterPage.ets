@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { common } from '@kit.AbilityKit';
 import { AccountApi, ChatEntry, FollowEntry, LtsRoom } from '../common/AccountApi';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';

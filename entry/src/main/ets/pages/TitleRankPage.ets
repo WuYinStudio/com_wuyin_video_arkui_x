@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
 import { UserTitle, UserTitles } from '../common/UserTitles';

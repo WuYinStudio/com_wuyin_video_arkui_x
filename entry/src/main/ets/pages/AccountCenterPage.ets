@@ -1,6 +1,6 @@
 ﻿import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { router } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { LegalText } from '../common/LegalText';
 import { AccountApi, FollowEntry, RankEntry } from '../common/AccountApi';
 import { AccountStore, RankRow, VipPlan, WalletFlow } from '../common/AccountStore';

@@ -1,6 +1,6 @@
-import { preferences } from '@kit.ArkData';
+﻿import { preferences } from '@kit.ArkData';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { Logger } from './Logger';
 import { ImmersiveService } from './ImmersiveService';
 

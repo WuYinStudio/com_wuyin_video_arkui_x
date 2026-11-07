@@ -1,7 +1,8 @@
-import { http } from '@kit.NetworkKit';
+﻿import { http } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
-import { router, window } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { AppConfig } from '../common/AppConfig';
 import { Logger } from '../common/Logger';
 import { Ui, UiMotion } from '../common/Ui';

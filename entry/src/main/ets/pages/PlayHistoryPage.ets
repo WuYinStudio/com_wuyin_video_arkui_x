@@ -1,5 +1,5 @@
 ﻿import { common } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { preferences } from '@kit.ArkData';
 import { AppState, PlayerImmersiveConfig, WatchRecord } from '../common/AppState';
 import { ShareService } from '../common/ShareService';

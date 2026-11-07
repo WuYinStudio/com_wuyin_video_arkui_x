@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { AccountApi, RankEntry } from '../common/AccountApi';
 import { Logger } from '../common/Logger';
 import { SymbolIcons } from '../common/SymbolIcons';

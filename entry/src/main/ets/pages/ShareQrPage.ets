@@ -1,7 +1,8 @@
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
-import { router, window } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { AppState } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { PosterStyle, ShareService } from '../common/ShareService';

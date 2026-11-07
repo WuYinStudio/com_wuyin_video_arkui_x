@@ -1,5 +1,5 @@
-import { common } from '@kit.AbilityKit';
-import { router } from '@kit.ArkUI';
+﻿import { common } from '@kit.AbilityKit';
+import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { SymbolIcons } from '../common/SymbolIcons';

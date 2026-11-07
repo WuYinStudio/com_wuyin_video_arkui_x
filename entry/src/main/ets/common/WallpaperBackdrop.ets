@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { Logger } from './Logger';
 import { WallpaperKind, WallpaperService } from './WallpaperService';
 

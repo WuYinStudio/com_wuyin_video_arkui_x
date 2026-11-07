@@ -1,4 +1,4 @@
-/*
+﻿/*
 AIGC:
 Label: '1'
 ContentProducer: 'HapCode'
@@ -10,7 +10,8 @@ ReservedCode2: ''
 */
 // 内容由 AI 生成，请仔细甄别（AI）
 import { common } from '@kit.AbilityKit';
-import { promptAction, router } from '@kit.ArkUI';
+import { promptAction } from '@kit.ArkUI';
+import router from '@ohos.router';
 import { AgreementService } from '../common/AgreementService';
 import { AppState } from '../common/AppState';
 import { Logger } from '../common/Logger';
@@ -59,7 +60,7 @@ struct Index {
 
   /** 云端 iOS 自测：先测网络桥，再逐页 push，日志写入 runtime.log。 */
   private async runIosSmokeTest(): Promise<void> {
-    await this.smokeSleep(1200);
+    await this.smokeSleep(5000);
     AppStorage.setOrCreate('agreementAccepted', true);
     this.smokeLog('SMOKE', '==== start ====');
     const homeUrl: string = 'http://www.baofeng.com/po/v10/config/channelhome?nav_id=203&pg=1&cp=fr4k0se&cl=newweb_baofeng';

@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig, WatchRecord } from '../common/AppState';
 import { Logger } from '../common/Logger';
 import { ImmersiveService } from '../common/ImmersiveService';

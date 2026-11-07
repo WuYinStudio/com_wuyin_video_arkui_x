@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ChatAlertInfo, ChatAlertService } from '../common/ChatAlertService';
 import { Logger } from '../common/Logger';

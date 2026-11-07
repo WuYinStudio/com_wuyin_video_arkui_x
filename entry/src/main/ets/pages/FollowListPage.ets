@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { AccountApi, FollowEntry } from '../common/AccountApi';
 import { CommunityApi, CommunitySession } from '../common/CommunityApi';
 import { Logger } from '../common/Logger';

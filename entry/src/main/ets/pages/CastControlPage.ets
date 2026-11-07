@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+﻿import router from '@ohos.router';
 import { CastDevice, CastPosition, CastService } from '../common/CastService';
 import { Logger } from '../common/Logger';
 import { Ui } from '../common/Ui';
