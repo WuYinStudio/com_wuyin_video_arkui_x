@@ -12,7 +12,7 @@ on:
       - '.arkui-x/ios/arkui-x/**'
 
 permissions:
-  contents: read
+  contents: write
   checks: write
 
 jobs:
