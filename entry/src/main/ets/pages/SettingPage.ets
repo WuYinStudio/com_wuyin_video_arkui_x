@@ -1,9 +1,9 @@
 import { common } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
 import { router } from '@kit.ArkUI';
 import { AppConfig } from '../common/AppConfig';
 import { ImageHostConfig, ImageHostResult, ImageHostService } from '../common/ImageHostService';
 import { picker } from '@kit.CoreFileKit';
+import { PlatformBridge } from '../common/PlatformBridge';
 import { AppState, PlayerImmersiveConfig } from '../common/AppState';
 import { ChatAlertService } from '../common/ChatAlertService';
 import { ImmersiveService } from '../common/ImmersiveService';
@@ -1176,8 +1176,11 @@ export struct SettingPage {
 
   private async copyLogs(): Promise<void> {
     try {
-      await pasteboard.getSystemPasteboard().setData(
-        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.logText));
+      const copied: boolean = await PlatformBridge.copyText(this.logText);
+      if (!copied) {
+        this.showOperationError('复制日志失败：系统剪贴板不可用');
+        return;
+      }
       this.showToast('已复制全部日志');
       Logger.info('BUTTON', '复制全部运行日志');
     } catch (error) {

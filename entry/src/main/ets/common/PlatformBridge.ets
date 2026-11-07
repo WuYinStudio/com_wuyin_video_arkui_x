@@ -204,7 +204,12 @@ export class PlatformBridge {
       headers: headers,
       body: body
     };
-    const result: bridge.Response = await (PlatformBridge.ensure().sendMessage(JSON.stringify(payload)) as Promise<bridge.Response>);
+    const request: Promise<bridge.Response> =
+      PlatformBridge.ensure().sendMessage(JSON.stringify(payload)) as Promise<bridge.Response>;
+    const timeout: Promise<bridge.Response> = new Promise<bridge.Response>((resolve: (value: bridge.Response) => void): void => {
+      setTimeout((): void => { resolve('-1\nbridge timeout'); }, 12000);
+    });
+    const result: bridge.Response = await Promise.race<bridge.Response>([request, timeout]);
     return result === undefined || result === null ? '-1\nempty response' : String(result);
   }
 }
