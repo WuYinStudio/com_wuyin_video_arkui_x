@@ -61,13 +61,13 @@ struct Index {
   private async runIosSmokeTest(): Promise<void> {
     await this.smokeSleep(1200);
     AppStorage.setOrCreate('agreementAccepted', true);
-    Logger.info('SMOKE', '==== start ====');
+    this.smokeLog('SMOKE', '==== start ====');
     const homeUrl: string = 'http://www.baofeng.com/po/v10/config/channelhome?nav_id=203&pg=1&cp=fr4k0se&cl=newweb_baofeng';
     try {
       const raw: string = await PlatformBridge.httpRequest(homeUrl, 'GET', '{}', '');
-      Logger.info('SMOKE_HTTP', 'bridge=' + raw.substring(0, 160).replace(/\n/g, ' | '));
+      this.smokeLog('SMOKE_HTTP', 'bridge=' + raw.substring(0, 160).replace(/\n/g, ' | '));
     } catch (error) {
-      Logger.error('SMOKE_HTTP', 'bridge error=' + String(error));
+      this.smokeLog('SMOKE_HTTP', 'bridge error=' + String(error));
     }
     const routes: string[] = [
       'pages/PlayerPage', 'pages/MessagePage', 'pages/ForumPage', 'pages/LoginPage',
@@ -75,29 +75,34 @@ struct Index {
       'pages/ScanPage', 'pages/ShareQrPage', 'pages/CastControlPage'
     ];
     for (const route of routes) {
-      Logger.info('SMOKE_ROUTE', 'push ' + route);
+      this.smokeLog('SMOKE_ROUTE', 'push ' + route);
       try {
         await router.pushUrl({ url: route });
-        Logger.info('SMOKE_ROUTE', 'ok ' + route);
+        this.smokeLog('SMOKE_ROUTE', 'ok ' + route);
       } catch (error) {
-        Logger.error('SMOKE_ROUTE', 'fail ' + route + ' ' + String(error));
+        this.smokeLog('SMOKE_ROUTE', 'fail ' + route + ' ' + String(error));
       }
       await this.smokeSleep(1200);
       try {
         if (Number(router.getLength()) > 1) { router.back(); }
       } catch (error) {
-        Logger.warn('SMOKE_ROUTE', 'back fail ' + String(error));
+        this.smokeLog('SMOKE_ROUTE', 'back fail ' + String(error));
       }
       await this.smokeSleep(600);
     }
     const tabs: string[] = ['settings', 'mine', 'category', 'message', 'forum'];
     for (const tab of tabs) {
-      Logger.info('SMOKE_TAB', 'switch ' + tab);
+      this.smokeLog('SMOKE_TAB', 'switch ' + tab);
       AppStorage.setOrCreate('page', tab);
       await this.smokeSleep(1800);
-      Logger.info('SMOKE_TAB', 'ok ' + tab);
+      this.smokeLog('SMOKE_TAB', 'ok ' + tab);
     }
-    Logger.info('SMOKE', '==== done ====');
+    this.smokeLog('SMOKE', '==== done ====');
+  }
+
+  private smokeLog(tag: string, message: string): void {
+    try { console.info('[SMOKE][' + tag + '] ' + message); } catch (_) {}
+    try { Logger.info(tag, message); } catch (_) {}
   }
 
   private async smokeSleep(ms: number): Promise<void> {
