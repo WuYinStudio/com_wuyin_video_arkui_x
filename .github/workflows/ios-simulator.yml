@@ -114,8 +114,15 @@ jobs:
             done
             echo "### simulator crash reports"
             find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Logs" -type f -mmin -15 -print 2>/dev/null || true
+            echo "### sample"
+            PID=$(pgrep -f 'app.app/app' | head -n 1 || true)
+            echo "pid=$PID"
+            if [ -n "$PID" ]; then
+              sample "$PID" 3 1 -file /tmp/sample.txt || true
+              head -n 400 /tmp/sample.txt || true
+            fi
             echo "### unified log"
-            xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app" OR eventMessage CONTAINS "com.wuyin.video"' | tail -n 300 || true
+            xcrun simctl spawn "$UDID" log show --last 3m --style compact | grep -iE 'wuyin|arkui|StageApplication|StageVC|EntryAbility|com.wuyin.video' | tail -n 250 || true
           } > /tmp/crash.log 2>&1
           cat /tmp/crash.log
           cat /tmp/crash.log >> "$GITHUB_STEP_SUMMARY"
