@@ -80,6 +80,13 @@ jobs:
             sleep 2
           done
           xcrun simctl install "$UDID" build/sim/app.app
+          DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
+          if [ -n "$DATA" ]; then
+            for d in "$DATA/Documents" "$DATA/Library/files" "$DATA/Library/Application Support" "$DATA/tmp"; do
+              mkdir -p "$d"
+              printf '1' > "$d/agreement_accepted.txt"
+            done
+          fi
           set +e
           xcrun simctl launch "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
           launch_rc=$?
