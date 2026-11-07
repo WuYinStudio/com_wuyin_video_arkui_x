@@ -44,13 +44,19 @@
 }
 
 - (void)setRootViewController:(UIViewController *)viewController {
-    self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    CGRect bounds = [UIScreen mainScreen].bounds;
+    if (CGRectIsEmpty(bounds)) {
+        bounds = CGRectMake(0, 0, 390, 844);
+    }
+    self.window = [[UIWindow alloc] initWithFrame:bounds];
     self.window.backgroundColor = [UIColor blackColor];
-    UINavigationController *navi = [[UINavigationController alloc] initWithRootViewController:viewController];
-    // 播放器/首页自带导航栏与沉浸式布局，隐藏系统导航栏避免出现双标题栏。
-    navi.navigationBarHidden = YES;
-    self.window.rootViewController = navi;
+    // ArkUI-X 的 StageViewController 直接作为 root，避免被 UINavigationController
+    // 以 0x0 布局导致 ArkUI surface 不显示。
+    self.window.rootViewController = viewController;
     [self.window makeKeyAndVisible];
+    viewController.view.frame = self.window.bounds;
+    [self.window layoutIfNeeded];
+    NSLog(@"WUYIN window=%@ view=%@", NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(viewController.view.frame));
 }
 
 @end

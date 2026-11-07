@@ -10,6 +10,7 @@ on:
       - '.github/workflows/ios-simulator.yml'
       - 'entry/src/main/ets/**'
       - '.arkui-x/ios/arkui-x/**'
+      - '.arkui-x/ios/app/**'
 
 permissions:
   contents: write
