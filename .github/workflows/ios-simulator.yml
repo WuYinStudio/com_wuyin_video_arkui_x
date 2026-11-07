@@ -114,6 +114,11 @@ jobs:
             echo "## crash diagnostics"
             echo "### app process"
             xcrun simctl spawn "$UDID" launchctl list | grep -i wuyin || true
+            echo "### runtime.log"
+            DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
+            if [ -n "$DATA" ]; then
+              find "$DATA" -name runtime.log -type f -print -exec tail -n 300 {} \; || true
+            fi
             echo "### sample"
             PID=$(pgrep -f 'app.app/app' | head -n 1 || true)
             echo "pid=$PID"
