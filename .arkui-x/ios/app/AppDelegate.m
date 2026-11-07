@@ -35,8 +35,14 @@
     [self setRootViewController:mainView];
 
     // ArkUI-X iOS 没有实现 @ohos.net.http；用平台桥接提供 NSURLSession 网络请求。
-    self.platformBridge = [[BridgePlugin alloc] initBridgePlugin:@"WuyinPlatformBridge"
-                                                      instanceId:[mainView getInstanceId]];
+    BridgePluginManager *manager = [mainView getBridgeManager];
+    if (manager != nil) {
+        self.platformBridge = [[BridgePlugin alloc] initBridgePlugin:@"WuyinPlatformBridge"
+                                                       bridgeManager:manager];
+    } else {
+        self.platformBridge = [[BridgePlugin alloc] initBridgePlugin:@"WuyinPlatformBridge"
+                                                          instanceId:[mainView getInstanceId]];
+    }
     self.platformBridge.messageListener = self;
     return YES;
 }

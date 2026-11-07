@@ -1,9 +1,8 @@
-import deviceInfo from '@ohos.deviceInfo';
-
 /**
  * 运行平台识别。
- * ArkUI-X 用同一份 abc 跑在 HarmonyOS / Android / iOS 上，
- * 系统专有能力必须按平台分流，不能假定 deviceInfo 的字段在 Android/iOS 都存在。
+ *
+ * 当前 iOS 壳没有提供 @ohos.deviceInfo，不能静态依赖它；
+ * 本工程只构建 iOS，因此直接固定为 iOS，避免设置页/聊天/播放器在模块加载时闪退。
  */
 export enum PlatformType {
   HARMONYOS = 'HarmonyOS',
@@ -13,29 +12,13 @@ export enum PlatformType {
 }
 
 export class PlatformInfo {
-  private static cached: PlatformType = PlatformType.UNKNOWN;
-  private static resolved: boolean = false;
-
   static type(): PlatformType {
-    if (PlatformInfo.resolved) { return PlatformInfo.cached; }
-    let fullName: string = '';
-    try { fullName = String(deviceInfo.osFullName || ''); } catch (error) { fullName = ''; }
-    let value: PlatformType = PlatformType.UNKNOWN;
-    if (fullName.indexOf('OpenHarmony') >= 0 || fullName.indexOf('HarmonyOS') >= 0) {
-      value = PlatformType.HARMONYOS;
-    } else if (fullName.indexOf('Android') >= 0) {
-      value = PlatformType.ANDROID;
-    } else if (fullName.indexOf('iOS') >= 0) {
-      value = PlatformType.IOS;
-    }
-    PlatformInfo.cached = value;
-    PlatformInfo.resolved = true;
-    return value;
+    return PlatformType.IOS;
   }
 
-  static isHarmonyOS(): boolean { return PlatformInfo.type() === PlatformType.HARMONYOS; }
-  static isAndroid(): boolean { return PlatformInfo.type() === PlatformType.ANDROID; }
-  static isIOS(): boolean { return PlatformInfo.type() === PlatformType.IOS; }
+  static isHarmonyOS(): boolean { return false; }
+  static isAndroid(): boolean { return false; }
+  static isIOS(): boolean { return true; }
 
   /** 用于提示文案与日志，不参与业务分支。 */
   static label(): string {

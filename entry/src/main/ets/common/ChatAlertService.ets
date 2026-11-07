@@ -1,6 +1,5 @@
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { media } from '@kit.MediaKit';
 import { AccountApi, ChatEntry, FollowEntry } from './AccountApi';
 import { AppState } from './AppState';
 import { ChatMessage, CommunityApi, CommunitySession } from './CommunityApi';
@@ -702,70 +701,8 @@ export class ChatAlertService {
   }
 
   private static async playSoundFile(): Promise<void> {
-    if (ChatAlertService.soundBusy) {
-      return;
-    }
-    const context: common.UIAbilityContext | undefined = AppState.context;
-    if (!context) {
-      return;
-    }
-    ChatAlertService.soundBusy = true;
-    try {
-      // 每次播放重新取 rawfile 句柄，并在释放时关闭，避免常驻轮询下 fd 累积。
-      const raw = await context.resourceManager.getRawFd(ChatAlertService.SOUND_FILE);
-      const player: media.AVPlayer = await media.createAVPlayer();
-      let released: boolean = false;
-      const release = (): void => {
-        if (released) { return; }
-        released = true;
-        ChatAlertService.soundBusy = false;
-        try {
-          player.release().catch((error: BusinessError) => {
-            Logger.warn('CHAT_ALERT', '释放提示音播放器失败：' + String(error.message || error));
-          });
-        } catch (error) {
-          Logger.warn('CHAT_ALERT', '释放提示音播放器异常：' + String(error));
-        }
-        try {
-          context.resourceManager.closeRawFd(ChatAlertService.SOUND_FILE).catch((error: BusinessError) => {
-            Logger.warn('CHAT_ALERT', '关闭提示音资源句柄失败：' + String(error.message || error));
-          });
-        } catch (error) {
-          Logger.warn('CHAT_ALERT', '关闭提示音资源句柄异常：' + String(error));
-        }
-      };
-      player.on('stateChange', (state: string) => {
-        try {
-          if (state === 'initialized') {
-            player.prepare().catch((error: Error) => {
-              Logger.warn('CHAT_ALERT', '准备提示音失败：' + String(error));
-              release();
-            });
-          } else if (state === 'prepared') {
-            player.play().catch((error: Error) => {
-              Logger.warn('CHAT_ALERT', '播放提示音失败：' + String(error));
-              release();
-            });
-          } else if (state === 'completed' || state === 'stopped' || state === 'error') {
-            release();
-          }
-        } catch (error) {
-          Logger.warn('CHAT_ALERT', '处理提示音状态失败：' + String(error));
-          release();
-        }
-      });
-      player.on('error', (error: BusinessError) => {
-        Logger.warn('CHAT_ALERT', '提示音播放异常：' + String(error.message || '未知错误'));
-        release();
-      });
-      player.fdSrc = { fd: raw.fd, offset: raw.offset, length: raw.length };
-      // 兜底释放：即使没有收到 completed 回调也不会留下悬挂的播放器。
-      setTimeout(release, 5000);
-      Logger.info('CHAT_ALERT', '播放聊天提示音');
-    } catch (error) {
-      ChatAlertService.soundBusy = false;
-      Logger.warn('CHAT_ALERT', '创建提示音播放器失败：' + String(error));
-    }
+    // iOS 壳没有 MediaKit 的 AVPlayer 绑定，提示音降级为静音，不影响设置页和聊天。
+    Logger.info('CHAT_ALERT', 'iOS 暂不支持聊天提示音');
   }
 
   private static nowTime(): string {
