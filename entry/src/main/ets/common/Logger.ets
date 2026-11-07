@@ -1,5 +1,4 @@
-import fs from '@ohos.file.fs';
-import { common } from '@kit.AbilityKit';
+﻿import { common } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 
 // 本地日志轮转：当前文件最大5MB，保留三份归档。通过系统保存面板授权导出。
@@ -17,17 +16,17 @@ export class Logger {
       // 统一写入可供日志页面逐行解析的分级标签；未知级别按 INFO 处理。
       const logLevel: string = level === 'WARN' || level === 'ERROR' ? level : 'INFO';
       const path = Logger.path();
-      if (fs.accessSync(path) && fs.statSync(path).size >= 5 * 1024 * 1024) {
-        if (fs.accessSync(path + '.3')) { fs.unlinkSync(path + '.3'); }
+      if (fileIo.accessSync(path) && fileIo.statSync(path).size >= 5 * 1024 * 1024) {
+        if (fileIo.accessSync(path + '.3')) { fileIo.unlinkSync(path + '.3'); }
         for (let i = 2; i >= 1; i--) {
-          if (fs.accessSync(path + '.' + i)) { fs.renameSync(path + '.' + i, path + '.' + (i + 1)); }
+          if (fileIo.accessSync(path + '.' + i)) { fileIo.renameSync(path + '.' + i, path + '.' + (i + 1)); }
         }
-        fs.renameSync(path, path + '.1');
+        fileIo.renameSync(path, path + '.1');
       }
-      const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.APPEND);
+      const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.APPEND);
       try {
-        fs.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ios\n`);
-      } finally { fs.closeSync(file); }
+        fileIo.writeSync(file.fd, `[${new Date().toISOString()}] [${logLevel}] [${tag}] ${message} | ios\n`);
+      } finally { fileIo.closeSync(file); }
     } catch (error) { console.error('日志写入失败：' + String(error)); }
   }
   // 调试日志沿用 INFO 级别，保持现有日志页面的分级解析兼容。
@@ -40,7 +39,7 @@ export class Logger {
     try {
       for (let i = 3; i >= 0; i--) {
         const path = Logger.path() + (i === 0 ? '' : '.' + i);
-        if (fs.accessSync(path)) { text += fs.readTextSync(path); }
+        if (fileIo.accessSync(path)) { text += fileIo.readTextSync(path); }
       }
     } catch (error) { Logger.error('READ', String(error)); }
     return text || '暂无运行日志';
@@ -49,7 +48,7 @@ export class Logger {
     try {
       for (let i = 0; i <= 3; i++) {
         const path = Logger.path() + (i === 0 ? '' : '.' + i);
-        if (fs.accessSync(path)) { fs.unlinkSync(path); }
+        if (fileIo.accessSync(path)) { fileIo.unlinkSync(path); }
       }
     } catch (error) { Logger.error('CLEAR', String(error)); }
   }
