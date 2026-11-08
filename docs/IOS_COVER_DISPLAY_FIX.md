@@ -94,6 +94,7 @@ if (video.img && !this.failedImages.includes(video.key)) {
 
 ## 5. 产物
 
-- `dist/wuyin-ios-unsigned-5.1.4.ipa`
+- `dist/wuyin-ios-unsigned-5.1.4.ipa`（54,522,979 bytes）
+- SHA-256：`EB76A818DA7E20B0F1EC7D183B5806AD832742082878B4B3CBC39654341ED3EB`
 - GitHub Release：`ios-unsigned-20261108-005506`（commit `bc88d90`）
 - 未签名 IPA，用于模拟器/重签。
