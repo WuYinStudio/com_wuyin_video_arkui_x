@@ -635,10 +635,10 @@ export struct CategoryPage {
   }
 
   private imageLoaded(key: string): void {
-    if (!this.pageAlive || !this.visibleImageKeys.includes(key) || this.failedImages.includes(key) ||
-      this.loadedImageKeys.includes(key)) {
+    if (!this.pageAlive || this.failedImages.includes(key) || this.loadedImageKeys.includes(key)) {
       return;
     }
+    Logger.info('CategoryImage', '封面加载完成，影片key=' + key);
     this.animateState(() => { this.loadedImageKeys = this.loadedImageKeys.concat(key); });
   }
 
@@ -1113,15 +1113,14 @@ export struct CategoryPage {
         if (!video.img || this.failedImages.includes(video.key) || !this.loadedImageKeys.includes(video.key)) {
           this.posterPlaceholder(video, this.imagePending(video))
         }
-        if (this.visibleImageKeys.includes(video.key) && video.img && !this.failedImages.includes(video.key)) {
+        if (video.img && !this.failedImages.includes(video.key)) {
           Image(video.img)
             .width('100%')
             .height('100%')
             .objectFit(ImageFit.Cover)
             .borderRadius('16vp')
             .clip(true)
-            .opacity(this.loadedImageKeys.includes(video.key) ? 1 : 0)
-            .animation({ duration: 300, curve: Curve.EaseInOut })
+            .opacity(1)
             .accessibilityText(video.title + '封面')
             .accessibilityLevel('no')
             .onComplete(() => { this.imageLoaded(video.key); })

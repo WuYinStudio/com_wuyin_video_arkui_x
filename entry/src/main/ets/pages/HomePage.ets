@@ -514,6 +514,9 @@ export struct HomePage {
   }
   private async cachedImage(address: string, kind: string, index: number): Promise<string> {
     if (!address) { return ''; }
+    // iOS 的 Image 对含中文目录的 file:// URI 支持不稳定：轮播首图会在本地缓存后
+    // 变成空白。这里直接返回网络地址，行为和能正常显示的「猜你喜欢」海报一致。
+    if (PlatformInfo.isIOS()) { return address; }
     let path: string = '';
     let request: http.HttpRequest | undefined;
     try {
@@ -841,7 +844,11 @@ export struct HomePage {
   }
   private onBannerBackgroundReady(itemIndex: number, loadFailed: boolean): void {
     try {
-      if (loadFailed) { Logger.error('HomeModule', '轮播图片显示失败 ' + itemIndex); }
+      if (loadFailed) {
+        Logger.error('HomeModule', '轮播图片显示失败 ' + itemIndex);
+      } else {
+        Logger.info('HomeBanner', '轮播背景加载完成 ' + itemIndex);
+      }
       if (this.bannerItems.length > 0 && itemIndex === this.bannerItems[0].itemIndex) {
         this.firstBannerRendered();
       }
@@ -1079,6 +1086,7 @@ export struct HomePage {
                 .height(frame.coverTall + 'vp')
                 .objectFit(ImageFit.Cover)
                 .borderRadius('14vp')
+                .onComplete(() => { Logger.info('HomeBanner', '轮播封面加载完成 ' + item.itemIndex); })
                 .onError(() => { this.onBannerCoverFailed(item.itemIndex); })
             }
               .width(frame.coverWide + 'vp')

@@ -119,9 +119,9 @@ struct Index {
       await this.smokeSleep(1800);
       this.smokeLog('SMOKE_TAB', 'ok ' + tab);
     }
-    this.smokeLog('SMOKE_TAB', 'switch home');
-    AppStorage.setOrCreate('page', 'home');
-    await this.smokeSleep(8000);
+    this.smokeLog('SMOKE_TAB', 'switch category (final)');
+    AppStorage.setOrCreate('page', 'category');
+    await this.smokeSleep(12000);
     this.smokeLog('SMOKE', '==== done ====');
   }
 

@@ -124,8 +124,8 @@ jobs:
           SIMCTL_CHILD_WUYIN_SMOKE=1 run_with_timeout 60 xcrun simctl launch --terminate-running-process "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
           launch_rc=$?
           echo "[$(date +%T)] launched rc=$launch_rc"
-          # 冒烟测试约 45 秒，之后回到首页再截屏。
-          sleep 55
+          # 冒烟测试约 50 秒，最后停在分类页再截屏，验证分类封面。
+          sleep 65
           run_with_timeout 60 xcrun simctl io "$UDID" screenshot /tmp/sim.png
           echo "[$(date +%T)] screenshot done"
           run_with_timeout 90 xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
