@@ -1,7 +1,7 @@
 name: iOS simulator diagnostics
 
 # 仅用于诊断：在 macOS runner 的 iOS 模拟器里启动 App，抓启动日志和截图。
-# 手动触发，或修改本文件时自动触发。
+# 手动触发，或修改本文件 / ArkTS / iOS 资源时自动触发。
 
 on:
   workflow_dispatch:
@@ -82,13 +82,15 @@ jobs:
           ls -1 build/sim/app.app/Frameworks | head -n 40
 
       - name: Run app in simulator
-        timeout-minutes: 15
+        timeout-minutes: 50
         run: |
           set -euo pipefail
           set -x
+
           # macOS 自带 perl 的 alarm 在 exec 后失效；用后台子进程 + kill 实现硬超时。
           run_with_timeout() {
-            local t=$1; shift
+            local t=$1
+            shift
             "$@" &
             local pid=$!
             ( sleep "$t"; kill -9 "$pid" 2>/dev/null ) &
@@ -99,10 +101,11 @@ jobs:
             wait "$watcher" 2>/dev/null || true
             return "$rc"
           }
+
           UDID=$(xcrun simctl list devices available | grep -m1 -E 'iPhone' | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
           echo "[$(date +%T)] simulator=$UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
-          run_with_timeout 180 xcrun simctl boot "$UDID" || true
+          run_with_timeout 300 xcrun simctl boot "$UDID" || true
           for i in $(seq 1 90); do
             if xcrun simctl list devices | grep "$UDID" | grep -q '(Booted)'; then
               echo "[$(date +%T)] booted after ${i} checks"
@@ -111,7 +114,9 @@ jobs:
             sleep 2
           done
           echo "[$(date +%T)] boot check done"
-          run_with_timeout 240 xcrun simctl install "$UDID" build/sim/app.app
+          # 清掉旧数据/旧图片缓存，避免上次运行的坏缓存影响封面验证。
+          run_with_timeout 60 xcrun simctl uninstall "$UDID" com.wuyin.video || true
+          run_with_timeout 900 xcrun simctl install "$UDID" build/sim/app.app
           echo "[$(date +%T)] installed"
           DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
           if [ -n "$DATA" ]; then
@@ -121,14 +126,14 @@ jobs:
             done
           fi
           set +e
-          SIMCTL_CHILD_WUYIN_SMOKE=1 run_with_timeout 60 xcrun simctl launch --terminate-running-process "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
+          SIMCTL_CHILD_WUYIN_SMOKE=1 run_with_timeout 90 xcrun simctl launch --terminate-running-process "$UDID" com.wuyin.video > /tmp/launch.txt 2>&1
           launch_rc=$?
           echo "[$(date +%T)] launched rc=$launch_rc"
           # 冒烟测试约 50 秒，最后停在分类页再截屏，验证分类封面。
           sleep 65
-          run_with_timeout 60 xcrun simctl io "$UDID" screenshot /tmp/sim.png
+          run_with_timeout 120 xcrun simctl io "$UDID" screenshot /tmp/sim.png
           echo "[$(date +%T)] screenshot done"
-          run_with_timeout 90 xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
+          run_with_timeout 120 xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "app"' > /tmp/app.log 2>&1
           echo "[$(date +%T)] log collected $(wc -l < /tmp/app.log 2>/dev/null || echo 0) lines"
           set -e
           echo "launch_rc=$launch_rc"
@@ -147,13 +152,26 @@ jobs:
         if: always()
         run: |
           set +e
+          run_with_timeout() {
+            local t=$1
+            shift
+            "$@" &
+            local pid=$!
+            ( sleep "$t"; kill -9 "$pid" 2>/dev/null ) &
+            local watcher=$!
+            local rc=0
+            wait "$pid" || rc=$?
+            kill "$watcher" 2>/dev/null || true
+            wait "$watcher" 2>/dev/null || true
+            return "$rc"
+          }
           {
             echo "## crash diagnostics"
             echo "### app process"
             xcrun simctl spawn "$UDID" launchctl list | grep -i wuyin || true
             echo "### unified log (SMOKE/errors)"
-            perl -e 'alarm shift; exec @ARGV' 120 xcrun simctl spawn "$UDID" log show --last 5m --style compact --predicate 'process == "app"' 2>/dev/null \
-              | grep -iE 'SMOKE|ERROR|TypeError|Fatal|Exception|abort|bridge|http|accessSync|undefined|not support' \
+            run_with_timeout 120 xcrun simctl spawn "$UDID" log show --last 5m --style compact --predicate 'process == "app"' 2>/dev/null \
+              | grep -iE 'SMOKE|CategoryImage|轮播|ERROR|TypeError|Fatal|Exception|abort|bridge|http|accessSync|undefined|not support' \
               | tail -n 400 || true
             echo "### runtime.log"
             DATA=$(xcrun simctl get_app_container "$UDID" com.wuyin.video data || true)
