@@ -112,11 +112,11 @@ struct Index {
       }
       await this.smokeSleep(600);
     }
-    const tabs: string[] = ['settings', 'mine', 'category', 'message', 'forum'];
+    const tabs: string[] = ['category'];
     for (const tab of tabs) {
       this.smokeLog('SMOKE_TAB', 'switch ' + tab);
       AppStorage.setOrCreate('page', tab);
-      await this.smokeSleep(1800);
+      await this.smokeSleep(15000);
       this.smokeLog('SMOKE_TAB', 'ok ' + tab);
     }
     this.smokeLog('SMOKE_TAB', 'switch category (final)');

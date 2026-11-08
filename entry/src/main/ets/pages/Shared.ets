@@ -1,4 +1,5 @@
 import { AppState, Film } from '../common/AppState';
+import { Logger } from '../common/Logger';
 import { Ui, UiMotion } from '../common/Ui';
 
 /**
@@ -26,6 +27,15 @@ export struct FilmTile {
     return this.cover.length > 0 && !this.coverFailed;
   }
 
+  /** 分类接口的封面常带逗号查询参数，部分 iOS 图片加载器会解析失败；统一编码。 */
+  private coverSource(): string {
+    try {
+      return encodeURI(this.cover);
+    } catch (_) {
+      return this.cover;
+    }
+  }
+
   private tileHeight(): number { return this.tablet ? 300 : 208; }
   private radius(): number { return this.tablet ? 26 : 22; }
 
@@ -50,11 +60,15 @@ export struct FilmTile {
           colors: [[Ui.genreTop(this.film.genre, this.dark), 0], [Ui.genreBottom(this.film.genre, this.dark), 1]]
         })
       if (this.hasCover()) {
-        Image(this.cover)
+        Image(this.coverSource())
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
-          .onError(() => { this.coverFailed = true; })
+          .onComplete(() => { Logger.info('FilmTile', '封面加载完成 ' + this.film.name); })
+          .onError(() => {
+            Logger.warn('FilmTile', '封面加载失败 ' + this.film.name + '，url=' + this.coverSource());
+            this.coverFailed = true;
+          })
           .accessibilityLevel('no')
       }
       // 首字水印：没有真实封面时提供海报感
