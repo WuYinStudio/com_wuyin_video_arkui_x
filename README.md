@@ -85,9 +85,20 @@ hvigorw -p product=default -p buildMode=debug assembleApp --no-daemon
 
 1. 把 ArkUI-X SDK（macOS 版）的 `libarkui_ios.xcframework` 放到
    `.arkui-x/ios/frameworks/`（说明见该目录 `README.md`）；
-2. 用 Xcode 打开 `.arkui-x/ios/app.xcodeproj`，替换 `DEVELOPMENT_TEAM` 后运行；
-3. ArkTS 产物目录 `arkui-x` 由 hvigor 的跨平台任务生成，Xcode 工程已把它加入 Resources。
+2. 运行 `python3 scripts/prepare_ios_plugins.py --sdk-zip <macOS SDK.zip>
+   --arch-dir ios-arm64-release --out build/ios-plugins
+   --xcconfig build/ios-plugins.xcconfig`，把 `@ohos.*` 与 Slider/Checkbox/Radio
+   等组件动态 framework 链接进工程；
+3. 用 Xcode 打开 `.arkui-x/ios/app.xcodeproj`，把 `build/ios-plugins.xcconfig`
+   设为 Base Configuration，替换 `DEVELOPMENT_TEAM` 后运行；
+4. ArkTS 产物目录 `arkui-x` 由 hvigor 的跨平台任务生成，Xcode 工程已把它加入 Resources。
 
+> **只链接 `libarkui_ios` 会导致 iOS 上 `@ohos.net.http`、`file.fs`、`router`、
+> `@arkui-x.bridge` 全部是 `undefined`**，表现为首页加载失败、页面不跳转、设置页闪退。
+> 修复说明见 **[docs/IOS_PLUGIN_FRAMEWORKS_FIX.md](docs/IOS_PLUGIN_FRAMEWORKS_FIX.md)**。
+>
+> ![iOS 5.1.4 首页](docs/images/ios-home-5.1.4.png)
+>
 > **Windows 不能构建 iOS**：`ace build ios` 会直接拒绝，Windows SDK 也没有
 > `libarkui_ios.xcframework`。无签名包的 macOS/云构建步骤见
 > **[docs/IOS_UNSIGNED_CLOUD_BUILD.md](docs/IOS_UNSIGNED_CLOUD_BUILD.md)**；
