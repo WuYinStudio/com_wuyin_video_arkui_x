@@ -31,7 +31,32 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 
+    // ArkUI-X 负责页面内容；UIKit 提供原生窗口语义色、状态栏和安全区。
+    // 保留 UIRectEdgeNone，避免 ArkUI Surface 被导航栏/状态栏重复扣除安全区。
     self.edgesForExtendedLayout = UIRectEdgeNone;
     self.extendedLayoutIncludesOpaqueBars = YES;
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.view.tintColor = UIColor.systemBlueColor;
+    self.view.insetsLayoutMarginsFromSafeArea = YES;
+    self.navigationController.navigationBarHidden = YES;
+    [self setNeedsStatusBarAppearanceUpdate];
+}
+
+- (UIStatusBarStyle)preferredStatusBarStyle {
+    if (@available(iOS 13.0, *)) {
+        return self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? UIStatusBarStyleLightContent : UIStatusBarStyleDarkContent;
+    }
+    return UIStatusBarStyleDefault;
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            self.view.backgroundColor = UIColor.systemBackgroundColor;
+            [self setNeedsStatusBarAppearanceUpdate];
+        }
+    }
 }
 @end

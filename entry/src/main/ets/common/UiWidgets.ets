@@ -14,6 +14,7 @@ import { registerGlass, unregisterGlass, setParams, setTint, startRender, stopRe
 import { AppState, PlayerImmersiveConfig } from './AppState';
 import { Logger } from './Logger';
 import { NavTabs } from './NavTabs';
+import { PlatformInfo } from './PlatformInfo';
 import { SymbolIcons } from './SymbolIcons';
 import { Ui, UiMotion } from './Ui';
 import { WallpaperBackdrop } from './WallpaperBackdrop';
@@ -1061,7 +1062,56 @@ export struct LiquidNav {
       })
   }
 
+  /** iOS 使用简洁的系统 Tab 栏布局，不显示跨平台液态球、拖拽和自绘光效。 */
+  @Builder
+  private iosTabCell(route: string) {
+    Column({ space: 3 }) {
+      SymbolGlyph(this.navSymbol(route))
+        .fontSize('22vp')
+        .fontColor([this.page === route ? '#007AFF' : (this.dark ? '#A1A1A6' : '#8E8E93')])
+      Text(NavTabs.title(route))
+        .fontSize('10vp')
+        .fontWeight(this.page === route ? FontWeight.Medium : FontWeight.Regular)
+        .fontColor(this.page === route ? '#007AFF' : (this.dark ? '#A1A1A6' : '#8E8E93'))
+        .maxLines(1)
+        .textAlign(TextAlign.Center)
+    }
+      .layoutWeight(1)
+      .height(50)
+      .justifyContent(FlexAlign.Center)
+      .accessibilityText(NavTabs.title(route) + (this.page === route ? '，已选中' : '，点击切换'))
+      .onClick(() => {
+        if (route === this.page) { return; }
+        if (route === 'manage') { AppStorage.setOrCreate<number>('manageInitialTab', 0); }
+        AppState.go(route);
+      })
+  }
+
+  @Builder
+  private iosTabBar() {
+    Column() {
+      Row() {
+        ForEach(this.routes(), (route: string) => {
+          this.iosTabCell(route)
+        }, (route: string) => route)
+      }
+        .width('100%')
+        .height(50)
+    }
+      .width('100%')
+      .backgroundColor(this.dark ? '#E61C1C1E' : '#E6F9F9FB')
+      .backdropBlur(24)
+      .border({ width: { top: 0.5 }, color: this.dark ? '#3AFFFFFF' : '#3A000000' })
+      .padding({ bottom: Math.max(0, this.safeBottom) })
+      .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+      .translate({ y: this.hidden ? 100 : 0 })
+      .animation({ duration: 220, curve: Curve.FastOutSlowIn })
+  }
+
   build() {
+    if (PlatformInfo.isIOS()) {
+      this.iosTabBar()
+    } else {
     Column() {
       // 用 TopStart 作为子控件原点：选中球靠 translate(y) 精确落到底栏垂直中心，
       // 不能使用 Alignment.Start（左中对齐），否则会再叠加一次垂直居中造成下沉。
@@ -1195,6 +1245,7 @@ export struct LiquidNav {
       .animation({ duration: this.page === 'category' ? 300 : 240, curve: Curve.FastOutSlowIn })
       .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
       .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
+    }
   }
 }
 
@@ -1383,12 +1434,14 @@ export struct PrimaryButton {
     }
       .height(this.compact ? 38 : 48)
       .padding({ left: this.compact ? '18vp' : '24vp', right: this.compact ? '18vp' : '24vp' })
-      .borderRadius(this.compact ? 19 : 24)
+      .borderRadius(PlatformInfo.isIOS() ? 10 : (this.compact ? 19 : 24))
       .linearGradient({
         angle: 110,
-        colors: [[Ui.brandFrom(), 0], [Ui.brandMid(), 0.55], [Ui.brandTo(), 1]]
+        colors: PlatformInfo.isIOS()
+          ? [['#007AFF', 0], ['#007AFF', 0.55], ['#007AFF', 1]]
+          : [[Ui.brandFrom(), 0], [Ui.brandMid(), 0.55], [Ui.brandTo(), 1]]
       })
-      .shadow({ radius: 16, color: Ui.accentGlow(this.dark), offsetY: 6 })
+      .shadow({ radius: PlatformInfo.isIOS() ? 0 : 16, color: Ui.accentGlow(this.dark), offsetY: PlatformInfo.isIOS() ? 0 : 6 })
       .scale({ x: this.pressed ? 0.96 : 1, y: this.pressed ? 0.96 : 1 })
       .animation({ duration: UiMotion.PRESS, curve: Curve.FastOutSlowIn })
       .accessibilityText(this.label)
@@ -1418,11 +1471,11 @@ export struct GhostButton {
     }
       .height(this.compact ? 34 : 44)
       .padding({ left: this.compact ? '14vp' : '18vp', right: this.compact ? '14vp' : '18vp' })
-      .borderRadius(this.compact ? 17 : 22)
-      .backgroundColor(Ui.glassTintSoft(this.dark))
-      .backdropBlur(Ui.glassBlur(this.immersion.immersiveEnable, this.immersion.immersiveBlur))
-      .border({ width: 1, color: Ui.glassRingSoft(this.dark) })
-      .shadow({ radius: 8, color: Ui.shadowSoft(this.dark), offsetY: 3 })
+      .borderRadius(PlatformInfo.isIOS() ? 10 : (this.compact ? 17 : 22))
+      .backgroundColor(PlatformInfo.isIOS() ? (this.dark ? '#333338' : '#E5E5EA') : Ui.glassTintSoft(this.dark))
+      .backdropBlur(PlatformInfo.isIOS() ? 0 : Ui.glassBlur(this.immersion.immersiveEnable, this.immersion.immersiveBlur))
+      .border({ width: PlatformInfo.isIOS() ? 0 : 1, color: Ui.glassRingSoft(this.dark) })
+      .shadow({ radius: PlatformInfo.isIOS() ? 0 : 8, color: Ui.shadowSoft(this.dark), offsetY: PlatformInfo.isIOS() ? 0 : 3 })
       .scale({ x: this.pressed ? 0.96 : 1, y: this.pressed ? 0.96 : 1 })
       .animation({ duration: UiMotion.PRESS, curve: Curve.FastOutSlowIn })
       .accessibilityText(this.label)
